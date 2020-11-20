@@ -5,5 +5,5 @@ type Room interface {
 	Name() string
 	AddMember(*User) error
 	RemoveMember(*User)
-	Send() chan<- *Packet
+	Send() chan<- Packet
 }

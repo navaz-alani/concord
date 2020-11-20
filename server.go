@@ -32,7 +32,7 @@ type UDPVoipImpl struct {
 	buffSize int
 	conn     *net.UDPConn
 	rooms    map[string]Room
-	users    map[string]*User // map ip to user
+	users    map[string]*User
 	dist     chan Packet
 }
 
@@ -60,25 +60,25 @@ func (svr *UDPVoipImpl) read(wg *sync.WaitGroup) {
 		} else {
 			var sender *User
 			if usr, ok := svr.users[senderAddr.String()]; !ok {
-				// cache sender ip
 				sender = &User{
 					addr: senderAddr.String(),
 				}
+				// cache sender ip
+				svr.users[sender.addr] = sender
 			} else {
 				sender = usr
 			}
 
 			var pkt Packet
-			// decode packet
-			if pkt.Unmarshal(readBuff[:n]) != nil {
+			if pkt.Unmarshal(readBuff[:n]) != nil { // decode packet
 				svr.notifyError("packet decode fail", sender.addr)
 			}
 			// process packet
-			if room, ok := svr.rooms[pkt.Dest()]; !ok || pkt.Dest() == "-" {
+			if room, ok := svr.rooms[pkt.Dest("")]; !ok || pkt.Dest("") == "-" {
 				svr.notifyError("invalid packet destination", sender.addr)
 			} else {
 				// handle any special message types for the server
-				switch pkt.Type() {
+				switch pkt.Type("") {
 				case SvrMkRoom:
 					{
 						var req struct {
@@ -113,7 +113,7 @@ func (svr *UDPVoipImpl) read(wg *sync.WaitGroup) {
 					room.RemoveMember(sender)
 				default:
 					// not a server message type
-					room.Send() <- &pkt
+					room.Send() <- pkt
 				}
 			}
 		}
@@ -125,13 +125,15 @@ func (svr *UDPVoipImpl) write(wg *sync.WaitGroup) {
 	var pkt Packet
 	for {
 		pkt = <-svr.dist
-		if data, err := json.Marshal(pkt.Raw()); err != nil {
-			// todo: handle packet decode fail
+		if data, err := pkt.Marshal(); err != nil {
+			continue // ignore packet encode fail
 		} else {
-			dst, _ := net.ResolveUDPAddr("udp", pkt.Dest())
-			// todo: handle destination address resolution fail
+			dst, err := net.ResolveUDPAddr("udp", pkt.Dest(""))
+			if err != nil {
+				continue
+			} // ignore malformed destinations
 			if _, err := svr.conn.WriteToUDP(data, dst); err != nil {
-				// todo: handle connection write fail
+				continue // ignore connection write fail
 			}
 		}
 	}

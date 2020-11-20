@@ -4,7 +4,7 @@ type BasicRoom struct {
 	name     string
 	addr     string
 	members  map[*User]bool
-	incoming chan *Packet
+	incoming chan Packet
 	srvc     *UDPVoipImpl
 }
 
@@ -23,6 +23,10 @@ func (r *BasicRoom) AddMember(u *User) error {
 	return nil
 }
 
+func (r *BasicRoom) RemoveMember(u *User) {
+	delete(r.members, u)
+}
+
 func (r *BasicRoom) Name() string {
 	return r.name
 }
@@ -31,15 +35,23 @@ func (r *BasicRoom) Addr() string {
 	return r.addr
 }
 
-func (r *BasicRoom) Send() chan<- *Packet {
+func (r *BasicRoom) Send() chan<- Packet {
 	return r.incoming
 }
 
 func (r *BasicRoom) Listen() {
-	var pkt *Packet
+	var pkt Packet
 	for {
 		pkt = <-r.incoming
-		// do some work on pkt e.g. auth
+		if pkt.Dest("") != r.name {
+			continue
+		}
+		// forward payload to each user
+		for user := range r.members {
+			pkt := pkt.Clone()
+			pkt.Dest(user.addr)
+			r.srvc.Distribute() <- pkt
+		}
 		r.srvc.dist <- pkt
 	}
 }
