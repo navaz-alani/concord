@@ -97,8 +97,8 @@ func (svr *UDPVoipImpl) read(wg *sync.WaitGroup) {
 								switch req.Type {
 								case RoomBasic:
 									svr.rooms[req.Name] = NewBasicRoom(req.Name, svr, sender)
-                case RoomPrivate:
-                case RoomGroup:
+								case RoomPrivate:
+								case RoomGroup:
 								default:
 									svr.rooms[req.Name] = NewBasicRoom(req.Name, svr, sender)
 								}
