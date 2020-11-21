@@ -27,7 +27,7 @@ type Server interface {
 	// Begin server RW loop
 	Serve() error
 	// AddTargetCallback pushes the given callback onto the callback queue for the
-  // specified target.
+	// specified target.
 	AddTargetCallback(target string, cb TargetCallback)
 }
 

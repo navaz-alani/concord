@@ -87,7 +87,7 @@ func (svr *UDPServer) execCallbackQueue(senderAddr string, cbq []TargetCallback,
 		}
 		cb(ctx, resp.Writer())
 	}
-  // if processing was successful on application side, send response
+	// if processing was successful on application side, send response
 	if !(ctx.Stat == -1) {
 		svr.dist <- resp // send response
 	} else {

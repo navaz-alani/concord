@@ -42,7 +42,7 @@ func (pc *JSONPktCreator) NewPkt(dest string) Packet {
 }
 
 func (pc *JSONPktCreator) NewErrPkt(dest, msg string) Packet {
-  pkt := &JSONPkt{
+	pkt := &JSONPkt{
 		jsonPkt: &jsonPkt{
 			Meta: make(map[string]string),
 		},
@@ -50,10 +50,10 @@ func (pc *JSONPktCreator) NewErrPkt(dest, msg string) Packet {
 		meta: NewKVMeta(),
 		dest: dest,
 	}
-  // set packet error flags
-  pkt.jsonPkt.Meta["_stat"] = "-1";
-  pkt.jsonPkt.Meta["_msg"] = msg;
-  return pkt
+	// set packet error flags
+	pkt.jsonPkt.Meta["_stat"] = "-1"
+	pkt.jsonPkt.Meta["_msg"] = msg
+	return pkt
 }
 
 func (p *JSONPkt) Dest() string {
