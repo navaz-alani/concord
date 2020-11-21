@@ -42,14 +42,7 @@ func (pc *JSONPktCreator) NewPkt(dest string) Packet {
 }
 
 func (pc *JSONPktCreator) NewErrPkt(dest, msg string) Packet {
-	pkt := &JSONPkt{
-		jsonPkt: &jsonPkt{
-			Meta: make(map[string]string),
-		},
-		mu:   sync.RWMutex{},
-		meta: NewKVMeta(),
-		dest: dest,
-	}
+	pkt, _ := pc.NewPkt(dest).(*JSONPkt)
 	// set packet error flags
 	pkt.jsonPkt.Meta["_stat"] = "-1"
 	pkt.jsonPkt.Meta["_msg"] = msg
