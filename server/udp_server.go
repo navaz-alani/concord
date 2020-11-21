@@ -8,10 +8,10 @@ import (
 )
 
 // UDPServer is an implementation of the Server type. As suggested by the name,
-// it uses UDP for underlying Packet transfer in the transport layer.
+// it uses UDP for underlying Packet transfer in the transport layer. The
 type UDPServer struct {
 	addr         *net.UDPAddr
-	targets      map[string]TargetCallback
+	targets      map[string][]TargetCallback
 	pc           packet.PacketCreator
 	dist         chan packet.Packet
 	shutdown     chan string
@@ -22,7 +22,7 @@ type UDPServer struct {
 func NewUDPServer(pc packet.PacketCreator, addr *net.UDPAddr, readBuffSize int) *UDPServer {
 	return &UDPServer{
 		addr:         addr,
-		targets:      make(map[string]TargetCallback),
+		targets:      make(map[string][]TargetCallback),
 		dist:         make(chan packet.Packet),
 		shutdown:     make(chan string),
 		done:         make(chan bool),
@@ -31,7 +31,7 @@ func NewUDPServer(pc packet.PacketCreator, addr *net.UDPAddr, readBuffSize int) 
 }
 
 func (svr *UDPServer) AddTarget(name string, cb TargetCallback) {
-	svr.targets[name] = cb
+	svr.targets[name] = append(svr.targets[name], cb)
 }
 
 func (svr *UDPServer) Serve() error {
@@ -49,39 +49,54 @@ func (svr *UDPServer) Serve() error {
 }
 
 func (svr *UDPServer) fmtMsg(msg string) string {
-	return fmt.Sprintf("[UDPServer@%s] ", svr.addr.String())
+	return fmt.Sprintf("[UDPServer@%s] %s", svr.addr.String(), msg)
 }
 
 // read is a routune which reads and decodes packets from the underlying
-// connection and handles them accordingly.
+// connection and executes their callback queues.
 func (svr *UDPServer) read(conn *net.UDPConn) {
 	readBuff := make([]byte, svr.readBuffSize)
-	req := svr.pc.NewPkt("")
-	var resp packet.Packet
 	for {
 		if n, senderAddr, err := conn.ReadFromUDP(readBuff); err != nil {
 			// send shutdown signal to end write routine
 			svr.shutdown <- svr.fmtMsg("read fail - connection error")
 		} else {
-			if err := req.Unmarshal(readBuff[:n]); err != nil { // ignore malformed packets
-			} else if cb, ok := svr.targets[req.Target()]; !ok { // ignore non-existent targets
+			pkt := svr.pc.NewPkt("")
+			if err := pkt.Unmarshal(readBuff[:n]); err != nil {
+				svr.dist <- svr.pc.NewErrPkt(senderAddr.String(), "malformed packet")
+			} else if cbq, ok := svr.targets[pkt.Target()]; !ok {
+				svr.dist <- svr.pc.NewErrPkt(senderAddr.String(), "non-existent target")
 			} else {
-				// execute callback corresponding to the request target.
-				go func(senderAddr string, cb TargetCallback, req packet.Packet) {
-					resp = svr.pc.NewPkt(senderAddr)
-					cb(&Request{
-						Pkt:  req,
-						From: senderAddr,
-					}, resp.Writer()) // invoke callback
-					svr.dist <- resp // send response
-				}(senderAddr.String(), cb, req)
+				go svr.execCallbackQueue(senderAddr.String(), cbq, pkt)
 			}
 		}
 	}
 }
 
+func (svr *UDPServer) execCallbackQueue(senderAddr string, cbq []TargetCallback, pkt packet.Packet) {
+	// prepare response and server callback execution context
+	resp := svr.pc.NewPkt(senderAddr)
+	ctx := &ServerCtx{
+		Pkt:  pkt,
+		From: senderAddr,
+	}
+	// execute callback queue
+	for _, cb := range cbq {
+		if ctx.Stat == -1 {
+			break
+		}
+		cb(ctx, resp.Writer())
+	}
+  // if processing was successful on application side, send response
+	if !(ctx.Stat == -1) {
+		svr.dist <- resp // send response
+	} else {
+		svr.dist <- svr.pc.NewErrPkt(senderAddr, ctx.Msg) // notify error
+	}
+}
+
 // write is a routine which distributes packets by writing them over the
-// underlying UDP connection.
+// underlying UDP connection. Any encoding/write errors are ignored.
 func (svr *UDPServer) write(conn *net.UDPConn) {
 	var pkt packet.Packet
 	for {

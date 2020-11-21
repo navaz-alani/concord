@@ -16,7 +16,9 @@ type jsonPkt struct {
 }
 
 // JSONPkt wraps the underlying wire type to provide concurrency support and
-// manage access to the underlying packet data.
+// manage access to the underlying packet data. It encodes and decodes to
+// `jsonPkt`. The JSON for JSONPkt should use field names as specified in the
+// `jsonPkt` struct tags.
 type JSONPkt struct {
 	*jsonPkt
 	mu   sync.RWMutex
@@ -37,6 +39,21 @@ func (pc *JSONPktCreator) NewPkt(dest string) Packet {
 		meta: NewKVMeta(),
 		dest: dest,
 	}
+}
+
+func (pc *JSONPktCreator) NewErrPkt(dest, msg string) Packet {
+  pkt := &JSONPkt{
+		jsonPkt: &jsonPkt{
+			Meta: make(map[string]string),
+		},
+		mu:   sync.RWMutex{},
+		meta: NewKVMeta(),
+		dest: dest,
+	}
+  // set packet error flags
+  pkt.jsonPkt.Meta["_stat"] = "-1";
+  pkt.jsonPkt.Meta["_msg"] = msg;
+  return pkt
 }
 
 func (p *JSONPkt) Dest() string {
