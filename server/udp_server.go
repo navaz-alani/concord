@@ -8,7 +8,7 @@ import (
 )
 
 // UDPServer is an implementation of the Server type. As suggested by the name,
-// it uses UDP for underlying Packet transfer in the transport layer. The
+// it uses UDP for underlying Packet transfer in the transport layer.
 type UDPServer struct {
 	addr         *net.UDPAddr
 	targets      map[string][]TargetCallback
