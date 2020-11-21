@@ -13,6 +13,8 @@ type Metadata interface {
 // sent in the Packet. Applications may choose to interpret this information in
 // any way that they wish.
 type Packet interface {
+	// Dest returns the address to which this packet is destined.
+	Dest() string
 	// Target is the target that the packet invokes on the server.
 	Target() string
 	// Meta is the metadata accessor.
@@ -23,6 +25,15 @@ type Packet interface {
 	Marshal() (bin []byte, err error)
 	// Unmarshal decodes the Packet from binary.
 	Unmarshal(bin []byte) (err error)
+
+	Writer() Writer
+}
+
+// PacketCreator abstracts creation of packets so that Server types may be
+// completely agnostic to Packet types and applications may instantiate Servers
+// with configurable Packet types.
+type PacketCreator interface {
+	NewPkt(dest string) Packet
 }
 
 // Writer describes the behaviour of a Packet writer, used to compose Packets.

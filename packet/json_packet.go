@@ -22,28 +22,43 @@ type JSONPkt struct {
 	mu   sync.RWMutex
 	buff bytes.Buffer
 	meta *KVMeta
+	dest string
 }
 
-func NewJSONPkt() *JSONPkt {
+// JSONPktCreator implements a PacketCreator for the JSONPkt type.
+type JSONPktCreator struct{}
+
+func (pc *JSONPktCreator) NewPkt(dest string) Packet {
 	return &JSONPkt{
 		jsonPkt: &jsonPkt{
 			Meta: make(map[string]string),
 		},
 		mu:   sync.RWMutex{},
 		meta: NewKVMeta(),
+		dest: dest,
 	}
 }
+
+func (p *JSONPkt) Dest() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.dest
+}
+
+func (p *JSONPkt) Writer() Writer { return p }
 
 func (p *JSONPkt) Target() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.jsonPkt.Target
 }
+
 func (p *JSONPkt) Meta() Metadata {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.meta
 }
+
 func (p *JSONPkt) Data() []byte {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

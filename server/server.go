@@ -13,7 +13,7 @@ import "github.com/navaz-alani/voip/packet"
 type Server interface {
 	// Begin server RW loop
 	Serve() error
-	AddTarget(targetName string, callback TargetCallback)
+	AddTarget(targetName string, cb TargetCallback)
 }
 
 // TargetCallback defines the signature of a callback for a target in the
