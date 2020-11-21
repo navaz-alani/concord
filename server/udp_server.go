@@ -107,12 +107,12 @@ func (svr *UDPServer) write(conn *net.UDPConn) {
 		select {
 		case pkt = <-svr.dist:
 			if bin, err := pkt.Marshal(); err == nil {
-        if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
-          _, _ = conn.WriteToUDP(bin, addr)
-        }
-      }
-      case <-svr.done: // server is done, break out
-      break
-    }
-  }
+				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
+					_, _ = conn.WriteToUDP(bin, addr)
+				}
+			}
+		case <-svr.done: // server is done, break out
+			break
+		}
+	}
 }

@@ -46,17 +46,17 @@ func main() {
 		log.Fatalln("Failed to write request to connection\n", err)
 	}
 
-  // read and decode server resoponse
-  respBuff := make([]byte, 4096)
-  if n, sender, err := conn.ReadFromUDP(respBuff); err != nil {
-    log.Fatalln("Failed to read response")
-  } else {
-    log.Printf("Read %d bytes from %s", n, sender.String())
-    // decode packet
-    respPkt := pc.NewPkt("")
-    if err := respPkt.Unmarshal(respBuff[:n]); err != nil {
-      log.Fatalln("Failed to decode server response")
-    }
-    log.Printf("Server says: %s", string(respPkt.Data()))
-  }
+	// read and decode server resoponse
+	respBuff := make([]byte, 4096)
+	if n, sender, err := conn.ReadFromUDP(respBuff); err != nil {
+		log.Fatalln("Failed to read response")
+	} else {
+		log.Printf("Read %d bytes from %s", n, sender.String())
+		// decode packet
+		respPkt := pc.NewPkt("")
+		if err := respPkt.Unmarshal(respBuff[:n]); err != nil {
+			log.Fatalln("Failed to decode server response")
+		}
+		log.Printf("Server says: %s", string(respPkt.Data()))
+	}
 }
