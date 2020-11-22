@@ -76,8 +76,9 @@ func (svr *UDPServer) read(conn *net.UDPConn) {
 }
 
 func (svr *UDPServer) execCallbackQueue(senderAddr string, cbq []TargetCallback, pkt packet.Packet) {
-	// prepare response and server callback execution context
+	// prepare response and server context for callback queue exec
 	resp := svr.pc.NewPkt(senderAddr)
+  resp.Meta().Add("_ref", pkt.Meta().Get("_ref")) // maintain ref on response
 	ctx := &ServerCtx{
 		Pkt:  pkt,
 		From: senderAddr,
@@ -108,7 +109,6 @@ func (svr *UDPServer) write(conn *net.UDPConn) {
 				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 					if _, err = conn.WriteToUDP(bin, addr); err == nil {
 						svr.completed++
-						//fmt.Printf("Served %d requests\n", svr.completed)
 					}
 				}
 			}

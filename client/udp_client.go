@@ -89,6 +89,7 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 	return nil
 }
 
+// send routine writes packets to the connection, one at a time.
 func (c *UDPClient) send() {
 	for {
 		select {
@@ -116,7 +117,7 @@ func (c *UDPClient) send() {
 }
 
 // read routine reads packets from underlying connection and sends them over the
-// `recvCh`.
+// `recvCh`, one by one.
 func (c *UDPClient) recv() {
 	readBuff := make([]byte, c.ReadBuffSize)
 	for {
@@ -126,7 +127,6 @@ func (c *UDPClient) recv() {
 		default:
 			{
 				if n, _, err := c.conn.ReadFromUDP(readBuff); err == nil {
-					//if senderAddr != c.addr { continue }
 					pkt := c.pc.NewPkt("")
 					if err := pkt.Unmarshal(readBuff[:n]); err == nil {
 						// ignoring malformed response error
