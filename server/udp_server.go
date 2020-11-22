@@ -17,6 +17,7 @@ type UDPServer struct {
 	shutdown     chan string
 	done         chan bool
 	readBuffSize int
+	completed    int
 }
 
 func NewUDPServer(pc packet.PacketCreator, addr *net.UDPAddr, readBuffSize int) *UDPServer {
@@ -64,13 +65,10 @@ func (svr *UDPServer) read(conn *net.UDPConn) {
 		} else {
 			pkt := svr.pc.NewPkt("")
 			if err := pkt.Unmarshal(readBuff[:n]); err != nil {
-				fmt.Println("malformed packet")
 				svr.dist <- svr.pc.NewErrPkt(senderAddr.String(), "malformed packet")
 			} else if cbq, ok := svr.targets[pkt.Target()]; !ok {
-				fmt.Println("non-existent target", pkt.Target())
 				svr.dist <- svr.pc.NewErrPkt(senderAddr.String(), "non-existent target")
 			} else {
-				fmt.Println("got packet")
 				go svr.execCallbackQueue(senderAddr.String(), cbq, pkt)
 			}
 		}
@@ -108,7 +106,10 @@ func (svr *UDPServer) write(conn *net.UDPConn) {
 		case pkt = <-svr.dist:
 			if bin, err := pkt.Marshal(); err == nil {
 				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
-					_, _ = conn.WriteToUDP(bin, addr)
+					if _, err = conn.WriteToUDP(bin, addr); err == nil {
+						svr.completed++
+						//fmt.Printf("Served %d requests\n", svr.completed)
+					}
 				}
 			}
 		case <-svr.done: // server is done, break out

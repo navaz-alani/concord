@@ -31,7 +31,6 @@ func main() {
 			ctx.Msg = "malformed packet data"
 			return
 		}
-		log.Println("received packet with message: ", pkt.Msg)
 		pw.Write([]byte("Received at " + time.Now().String()))
 		pw.Close()
 	})

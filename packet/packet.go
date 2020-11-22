@@ -17,9 +17,13 @@ type Metadata interface {
 // client and is usually empty.
 //
 // In the case that processing fails and the Server returns a Packet, there are
-// two special metadata keys set by the server: "_stat" and "_msg". The former
+// special metadata keys set by the server: "_stat" and "_msg". The former
 // is an integer (as a string), representing a status code (servers use "-1" for
-// a generic error) and the latter is a string explaining the error.
+// a generic error) and the latter is a string explaining the error. There is
+// also the "_ref" key which can be set on a packet by the client. The server
+// then maintains this "_ref" key metadata on its response, thereby enabling the
+// Client to determine which request the response packet corresponds to. Note
+// that Client is responsible for setting this "_ref" metadata.
 type Packet interface {
 	// Dest returns the address to which this packet is destined.
 	Dest() string
