@@ -30,8 +30,8 @@ type JSONPkt struct {
 // JSONPktCreator implements a PacketCreator for the JSONPkt type.
 type JSONPktCreator struct{}
 
-func (pc *JSONPktCreator) NewPkt(dest string) Packet {
-	return &JSONPkt{
+func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
+  pkt := &JSONPkt{
 		jsonPkt: &jsonPkt{
 			Meta: make(map[string]string),
 		},
@@ -39,13 +39,15 @@ func (pc *JSONPktCreator) NewPkt(dest string) Packet {
 		meta: NewKVMeta(),
 		dest: dest,
 	}
+  pkt.Meta().Add("_ref", ref)
+  return pkt
 }
 
-func (pc *JSONPktCreator) NewErrPkt(dest, msg string) Packet {
-	pkt, _ := pc.NewPkt(dest).(*JSONPkt)
+func (pc *JSONPktCreator) NewErrPkt(ref, dest, msg string) Packet {
+	pkt, _ := pc.NewPkt(ref, dest).(*JSONPkt)
 	// set packet error flags
-	pkt.jsonPkt.Meta["_stat"] = "-1"
-	pkt.jsonPkt.Meta["_msg"] = msg
+	pkt.Meta().Add("_stat", "-1")
+	pkt.Meta().Add("_msg", msg)
 	return pkt
 }
 

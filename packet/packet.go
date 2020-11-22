@@ -45,9 +45,9 @@ type Packet interface {
 // completely agnostic to Packet types and applications may instantiate Servers
 // with configurable Packet types.
 type PacketCreator interface {
-	NewPkt(dest string) Packet
+	NewPkt(ref, dest string) Packet
 	// NewErrPkt creates error packets for Server user.
-	NewErrPkt(dest, msg string) Packet
+	NewErrPkt(ref, dest, msg string) Packet
 }
 
 // Writer describes the behaviour of a Packet writer, used to compose Packets.
