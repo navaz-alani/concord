@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/navaz-alani/voip/client"
 	"github.com/navaz-alani/voip/packet"
 )
 
@@ -19,34 +21,13 @@ var (
 
 func main() {
 	flag.Parse()
-
+	rand.Seed(time.Now().Unix())
 	svrAddr := &net.UDPAddr{
 		IP:   []byte{127, 0, 0, 1},
 		Port: 10000,
 	}
 
 	pc := packet.JSONPktCreator{}
-	req := pc.NewPkt(svrAddr.String())
-	reqComposer := req.Writer()
-	reqComposer.SetTarget("app.echo") // set packet target
-	var pkt struct {
-		Msg string `json:"msg"`
-	}
-	pkt.Msg = "Hello from client"
-	if bin, err := json.Marshal(pkt); err != nil {
-		log.Fatalln("Failed to encode request")
-	} else {
-		log.Println("sending payload: ", string(bin))
-		reqComposer.Write(bin) // set packet data
-	}
-	// can set additional metatdata
-	reqComposer.Close() // commit changes to req packet
-
-	// encode request packet to binary and write it to server over connection.
-	raw, err := req.Marshal()
-	if err != nil {
-		log.Fatalln("Failed to encode Packet.")
-	}
 
 	completed := 0
 	completeChan := make(chan bool)
@@ -57,57 +38,44 @@ func main() {
 		for i := 0; i < *requests; i++ {
 			<-completeChan
 			completed++
-			//log.Printf("Competed request %d of %d\n", completed, *requests)
+			log.Printf("Competed request %d of %d\n", completed, *requests)
 		}
 		wg.Done()
 	}(wg)
 
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{
-		IP:   []byte{127, 0, 0, 1},
-		Port: 10001,
-	})
+	client, err := client.NewUDPClient(svrAddr, 4096, &pc)
 	if err != nil {
-		log.Println("Error connecting: ", err)
-		return
+		log.Fatalln("Failed to instantiate client")
 	}
 
 	start := time.Now()
 	for i := 0; i < *requests; i++ {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			if _, err := conn.WriteToUDP(raw, svrAddr); err != nil {
-				log.Println("Failed to write request to connection", err)
-			} else {
-				// read and decode server resoponse
-				respBuff := make([]byte, 4096)
-				if n, _, err := conn.ReadFromUDP(respBuff); err != nil {
-					log.Println("Failed to read response")
-				} else {
-					bytesRead += n
-					respPkt := pc.NewPkt("") // decode packet
-					if err := respPkt.Unmarshal(respBuff[:n]); err != nil {
-						log.Println("Failed to decode server response")
-					}
-				}
+		go func() {
+			wg.Add(1)
+			req := pc.NewPkt("", svrAddr.String())
+			reqComposer := req.Writer()
+			reqComposer.SetTarget("app.echo") // set packet target
+			var pkt struct {
+				Msg string `json:"msg"`
 			}
+			pkt.Msg = "Hello from client"
+			if bin, err := json.Marshal(pkt); err != nil {
+				log.Fatalln("Failed to encode request")
+			} else {
+				reqComposer.Write(bin) // set packet data to pkt JSON repr
+			}
+			// can set additional metatdata ...
+			reqComposer.Close() // commit changes to req packet
+
+			respCh := make(chan packet.Packet)
+			client.Send(req, respCh)
+			<-respCh // wait till response arrives
 			completeChan <- true
 			wg.Done()
-		}(wg)
+		}()
 	}
-
-	go func() {
-		for {
-			time.Sleep(1 * time.Second)
-			log.Printf("Read %d bytes\n", bytesRead)
-			log.Printf("Completed %d of %d\n", completed, *requests)
-			if completed == *requests {
-				break
-			}
-		}
-	}()
 
 	wg.Wait()
 	end := time.Now()
-	log.Printf("Read %d bytes\n", bytesRead)
 	log.Printf("%d requests in %v", completed, end.Sub(start))
 }

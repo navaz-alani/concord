@@ -37,14 +37,15 @@ type UDPClient struct {
 	requests       map[string]requestCtx
 }
 
-func NewUDPClient(addr *net.UDPAddr, readBuffSize int) (Client, error) {
-	conn, err := net.ListenUDP("udp", addr)
+func NewUDPClient(addr *net.UDPAddr, readBuffSize int, pc packet.PacketCreator) (Client, error) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: []byte{0, 0, 0, 0}})
 	if err != nil {
 		return nil, err
 	}
 	client := &UDPClient{
 		mu:           sync.RWMutex{},
 		ReadBuffSize: readBuffSize,
+		pc:           pc,
 		addr:         addr,
 		conn:         conn,
 		sendCh:       make(chan packet.Packet),
@@ -81,10 +82,12 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 	// create ref for packet
 	ref := genRef(3)
 	pkt.Meta().Add("_ref", ref)
+	c.mu.Lock()
 	c.requests[ref] = requestCtx{
 		respCh: respCh,
 		status: requestStatusWaiting,
 	}
+	c.mu.Unlock()
 	c.sendCh <- pkt
 	return nil
 }
@@ -101,17 +104,19 @@ func (c *UDPClient) send() {
 				var ctx requestCtx
 				var refValid bool
 				if bin, err := pkt.Marshal(); err != nil {
+					c.mu.RLock()
 					if ctx, refValid = c.requests[ref]; refValid {
-						ctx.respCh <- c.pc.NewErrPkt("", "packet encode failure")
+						ctx.respCh <- c.pc.NewErrPkt("", "", "packet encode failure")
 						delete(c.requests, ref)
 					}
+					c.mu.RUnlock()
 				} else {
 					if _, err := c.conn.WriteTo(bin, c.addr); err != nil {
-						ctx.respCh <- c.pc.NewErrPkt("", "packed write failure")
+						ctx.respCh <- c.pc.NewErrPkt("", "", "packed write failure")
+						delete(c.requests, ref)
 					}
 				}
 			}
-		default:
 		}
 	}
 }
@@ -127,7 +132,7 @@ func (c *UDPClient) recv() {
 		default:
 			{
 				if n, _, err := c.conn.ReadFromUDP(readBuff); err == nil {
-					pkt := c.pc.NewPkt("")
+					pkt := c.pc.NewPkt("", "")
 					if err := pkt.Unmarshal(readBuff[:n]); err == nil {
 						// ignoring malformed response error
 						c.recvCh <- pkt
@@ -149,12 +154,13 @@ func (c *UDPClient) reply() {
 			{
 				// send received packet to caller
 				ref = pkt.Meta().Get("_ref")
+				c.mu.RLock()
 				if ctx, refValid := c.requests[ref]; refValid {
 					ctx.respCh <- pkt
 					delete(c.requests, ref)
 				}
+				c.mu.RUnlock()
 			}
-		default:
 		}
 	}
 }

@@ -31,7 +31,7 @@ type JSONPkt struct {
 type JSONPktCreator struct{}
 
 func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
-  pkt := &JSONPkt{
+	pkt := &JSONPkt{
 		jsonPkt: &jsonPkt{
 			Meta: make(map[string]string),
 		},
@@ -39,8 +39,9 @@ func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
 		meta: NewKVMeta(),
 		dest: dest,
 	}
-  pkt.Meta().Add("_ref", ref)
-  return pkt
+	pkt.meta.setMeta(pkt.jsonPkt.Meta)
+	pkt.Meta().Add("_ref", ref)
+	return pkt
 }
 
 func (pc *JSONPktCreator) NewErrPkt(ref, dest, msg string) Packet {
