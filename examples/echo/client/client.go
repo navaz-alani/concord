@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 
+	"github.com/navaz-alani/voip/client"
 	"github.com/navaz-alani/voip/packet"
 )
 
@@ -13,19 +14,11 @@ func main() {
 		IP:   []byte{127, 0, 0, 1},
 		Port: 10000,
 	}
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{
-		IP:   []byte{127, 0, 0, 1},
-		Port: 10001,
-	})
-	if err != nil {
-		log.Fatalln("Error connecting")
-	}
-	defer conn.Close()
 
 	pc := packet.JSONPktCreator{}
-	req := pc.NewPkt(svrAddr.String())
+	req := pc.NewPkt("", svrAddr.String())
 	reqComposer := req.Writer()
-	reqComposer.SetTarget("app.echo") // set packet target
+	reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
 	var pkt struct {
 		Msg string `json:"msg"`
 	}
@@ -36,27 +29,15 @@ func main() {
 		log.Println("sending payload: ", string(bin))
 		reqComposer.Write(bin) // set packet data
 	}
-	// can set additional metatdata
 	reqComposer.Close() // commit changes to req packet
 
-	// encode request packet to binary and write it to server over connection.
-	if raw, err := req.Marshal(); err != nil {
-		log.Fatalln("Failed to encode Packet.")
-	} else if _, err := conn.WriteToUDP(raw, svrAddr); err != nil {
-		log.Fatalln("Failed to write request to connection\n", err)
+	client, err := client.NewUDPClient(svrAddr, 4096, &pc)
+	if err != nil {
+		log.Fatalln("Failed to instantiate client")
 	}
 
-	// read and decode server resoponse
-	respBuff := make([]byte, 4096)
-	if n, sender, err := conn.ReadFromUDP(respBuff); err != nil {
-		log.Fatalln("Failed to read response")
-	} else {
-		log.Printf("Read %d bytes from %s", n, sender.String())
-		// decode packet
-		respPkt := pc.NewPkt("")
-		if err := respPkt.Unmarshal(respBuff[:n]); err != nil {
-			log.Fatalln("Failed to decode server response")
-		}
-		log.Printf("Server says: %s", string(respPkt.Data()))
-	}
+	respCh := make(chan packet.Packet)
+	client.Send(req, respCh) // send request
+	resp := <-respCh         // wait till response arrives
+	log.Println("Got response: ", string(resp.Data()))
 }
