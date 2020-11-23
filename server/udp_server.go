@@ -66,8 +66,8 @@ func (svr *UDPServer) read(conn *net.UDPConn) {
 			pkt := svr.pc.NewPkt("", "")
 			if err := pkt.Unmarshal(readBuff[:n]); err != nil {
 				svr.dist <- svr.pc.NewErrPkt("", senderAddr.String(), "malformed packet")
-			} else if cbq, ok := svr.targets[pkt.Target()]; !ok {
-				svr.dist <- svr.pc.NewErrPkt("", senderAddr.String(), "non-existent target")
+			} else if cbq, ok := svr.targets[pkt.Meta().Get(packet.KeyTarget)]; !ok {
+				svr.dist <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef), senderAddr.String(), "non-existent target")
 			} else {
 				go svr.execCallbackQueue(senderAddr.String(), cbq, pkt)
 			}
@@ -77,7 +77,7 @@ func (svr *UDPServer) read(conn *net.UDPConn) {
 
 func (svr *UDPServer) execCallbackQueue(senderAddr string, cbq []TargetCallback, pkt packet.Packet) {
 	// prepare response and server context for callback queue exec
-	ref := pkt.Meta().Get("_ref")
+	ref := pkt.Meta().Get(packet.KeyRef)
 	resp := svr.pc.NewPkt(ref, senderAddr)
 	ctx := &ServerCtx{
 		Pkt:  pkt,
@@ -85,13 +85,14 @@ func (svr *UDPServer) execCallbackQueue(senderAddr string, cbq []TargetCallback,
 	}
 	// execute callback queue
 	for _, cb := range cbq {
-		if ctx.Stat == -1 {
+		if ctx.Stat != 0 {
 			break
 		}
 		cb(ctx, resp.Writer())
 	}
+	resp.Writer().Close()
 	// if processing was successful on application side, send response
-	if ctx.Stat != -1 {
+	if ctx.Stat == 0 {
 		svr.dist <- resp // send response
 	} else {
 		svr.dist <- svr.pc.NewErrPkt(ref, senderAddr, ctx.Msg) // notify error
@@ -109,7 +110,6 @@ func (svr *UDPServer) write(conn *net.UDPConn) {
 				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 					if _, err = conn.WriteToUDP(bin, addr); err == nil {
 						svr.completed++
-						fmt.Printf("Written response %d\n", svr.completed)
 					}
 				}
 			}

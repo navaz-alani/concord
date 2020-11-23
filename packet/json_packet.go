@@ -10,9 +10,8 @@ import (
 // jsonPkt is the underlying type which is encoded and decoded to and from bytes
 // over the wire.
 type jsonPkt struct {
-	Target string            `json:"t"`
-	Meta   map[string]string `json:"m"`
-	Data   string            `json:"d"`
+	Meta map[string]string `json:"m"`
+	Data string            `json:"d"`
 }
 
 // JSONPkt wraps the underlying wire type to provide concurrency support and
@@ -40,15 +39,15 @@ func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
 		dest: dest,
 	}
 	pkt.meta.setMeta(pkt.jsonPkt.Meta)
-	pkt.Meta().Add("_ref", ref)
+	pkt.Meta().Add(KeyRef, ref)
 	return pkt
 }
 
 func (pc *JSONPktCreator) NewErrPkt(ref, dest, msg string) Packet {
 	pkt, _ := pc.NewPkt(ref, dest).(*JSONPkt)
-	// set packet error flags
-	pkt.Meta().Add("_stat", "-1")
-	pkt.Meta().Add("_msg", msg)
+	// set reponse's error metadata
+	pkt.Meta().Add(KeySvrStatus, "-1")
+	pkt.Meta().Add(KeySvrMsg, msg)
 	return pkt
 }
 
@@ -60,12 +59,6 @@ func (p *JSONPkt) Dest() string {
 
 func (p *JSONPkt) Writer() Writer { return p }
 
-func (p *JSONPkt) Target() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.jsonPkt.Target
-}
-
 func (p *JSONPkt) Meta() Metadata {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -76,12 +69,6 @@ func (p *JSONPkt) Data() []byte {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.buff.Bytes()
-}
-
-func (p *JSONPkt) SetTarget(t string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.jsonPkt.Target = t
 }
 
 func (p *JSONPkt) Marshal() (bin []byte, err error) {

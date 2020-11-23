@@ -81,7 +81,7 @@ func genRef(n int) string {
 func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 	// create ref for packet
 	ref := genRef(3)
-	pkt.Meta().Add("_ref", ref)
+	pkt.Meta().Add(packet.KeyRef, ref)
 	c.mu.Lock()
 	c.requests[ref] = requestCtx{
 		respCh: respCh,
@@ -100,7 +100,7 @@ func (c *UDPClient) send() {
 			return
 		case pkt := <-c.sendCh:
 			{
-				ref := pkt.Meta().Get("_ref")
+				ref := pkt.Meta().Get(packet.KeyRef)
 				var ctx requestCtx
 				var refValid bool
 				if bin, err := pkt.Marshal(); err != nil {
@@ -153,7 +153,7 @@ func (c *UDPClient) reply() {
 		case pkt := <-c.recvCh:
 			{
 				// send received packet to caller
-				ref = pkt.Meta().Get("_ref")
+				ref = pkt.Meta().Get(packet.KeyRef)
 				c.mu.RLock()
 				if ctx, refValid := c.requests[ref]; refValid {
 					ctx.respCh <- pkt

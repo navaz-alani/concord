@@ -2,6 +2,14 @@ package packet
 
 import "io"
 
+// Metadata keys
+const (
+	KeySvrStatus string = "_stat"
+	KeySvrMsg           = "_msg"
+	KeyRef              = "_ref"
+	KeyTarget           = "_tgt"
+)
+
 // Metadata defines a key-value metadata store for Packets.
 type Metadata interface {
 	Add(key, val string)
@@ -11,10 +19,8 @@ type Metadata interface {
 // Packet defines the required behaviour of a type to be serialized/deserialized
 // for over-the-wire transport. For users, the `Data` method returns the data
 // sent in the Packet. Applications may choose to interpret this information in
-// any way that they wish. When a packet is sent to the Server by a client, the
-// `Target` field is significant. When a packet is sent to the client by the
-// Server, the Target field is not significant i.e. it holds no meaning for the
-// client and is usually empty.
+// any way that they wish. Packets mainly work off of metadata and the target of
+// a packet is specified using the metadata key "_tgt".
 //
 // In the case that processing fails and the Server returns a Packet, there are
 // special metadata keys set by the server: "_stat" and "_msg". The former
@@ -27,8 +33,6 @@ type Metadata interface {
 type Packet interface {
 	// Dest returns the address to which this packet is destined.
 	Dest() string
-	// Target is the target that the packet invokes on the server.
-	Target() string
 	// Meta is the metadata accessor.
 	Meta() Metadata
 	// Data is the packet data accessor.
@@ -43,7 +47,12 @@ type Packet interface {
 
 // PacketCreator abstracts creation of packets so that Server types may be
 // completely agnostic to Packet types and applications may instantiate Servers
-// with configurable Packet types.
+// with configurable Packet types. The `ref` string is included in the following
+// PacketCreator method signatures to indicate the importance of the `ref`
+// metadata on requests (of course, the `ref` can also be set by using a
+// Packet.Meta().Add(packet.KeyRef, "<ref>") call, as with any other metadata).
+// The `ref` is important because it is the only piece of information unique to
+// a request sent by a particular address.
 type PacketCreator interface {
 	NewPkt(ref, dest string) Packet
 	// NewErrPkt creates error packets for Server user.
@@ -54,5 +63,4 @@ type PacketCreator interface {
 type Writer interface {
 	io.WriteCloser
 	Meta() Metadata
-	SetTarget(t string)
 }

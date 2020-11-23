@@ -54,7 +54,7 @@ func main() {
 			wg.Add(1)
 			req := pc.NewPkt("", svrAddr.String())
 			reqComposer := req.Writer()
-			reqComposer.SetTarget("app.echo") // set packet target
+			reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
 			var pkt struct {
 				Msg string `json:"msg"`
 			}
