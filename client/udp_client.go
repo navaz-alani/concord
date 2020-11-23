@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/navaz-alani/voip/packet"
+	"github.com/navaz-alani/voip/throttle"
 )
 
 // Internal request statuses.
@@ -30,6 +31,7 @@ type UDPClient struct {
 	pc             packet.PacketCreator
 	addr           *net.UDPAddr
 	conn           *net.UDPConn
+	th             throttle.Throttle
 	activeRoutines int
 	sendCh         chan packet.Packet
 	recvCh         chan packet.Packet
@@ -48,6 +50,7 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int, pc packet.PacketCreator) 
 		pc:           pc,
 		addr:         addr,
 		conn:         conn,
+		th:           throttle.NewUDPThrottle(throttle.Rate10k, conn, readBuffSize),
 		sendCh:       make(chan packet.Packet),
 		recvCh:       make(chan packet.Packet),
 		doneCh:       make(chan bool),
@@ -66,6 +69,8 @@ func (c *UDPClient) Cleanup() error {
 	for i := 0; i < c.activeRoutines; i++ {
 		c.doneCh <- true
 	}
+	c.th.Shutdown()
+	c.conn.Close()
 	return nil
 }
 
@@ -111,7 +116,7 @@ func (c *UDPClient) send() {
 					}
 					c.mu.RUnlock()
 				} else {
-					if _, err := c.conn.WriteTo(bin, c.addr); err != nil {
+					if _, err := c.th.WriteTo(bin, c.addr); err != nil {
 						ctx.respCh <- c.pc.NewErrPkt("", "", "packed write failure")
 						delete(c.requests, ref)
 					}
@@ -124,16 +129,15 @@ func (c *UDPClient) send() {
 // read routine reads packets from underlying connection and sends them over the
 // `recvCh`, one by one.
 func (c *UDPClient) recv() {
-	readBuff := make([]byte, c.ReadBuffSize)
 	for {
 		select {
 		case <-c.doneCh:
 			return
 		default:
 			{
-				if n, _, err := c.conn.ReadFromUDP(readBuff); err == nil {
+				if data, _, err := c.th.ReadFrom(); err == nil {
 					pkt := c.pc.NewPkt("", "")
-					if err := pkt.Unmarshal(readBuff[:n]); err == nil {
+					if err := pkt.Unmarshal(data); err == nil {
 						// ignoring malformed response error
 						c.recvCh <- pkt
 					}

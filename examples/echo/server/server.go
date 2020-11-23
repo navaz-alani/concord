@@ -16,7 +16,12 @@ func main() {
 		IP:   []byte{0, 0, 0, 0},
 		Port: 10000,
 	}
-	svr := server.NewUDPServer(&packet.JSONPktCreator{}, addr, 4096)
+	svr, err := server.NewUDPServer(&packet.JSONPktCreator{}, addr, 4096)
+	if err != nil {
+		log.Fatalln("Failed to initialize server")
+	}
+
+	var requestsServed int
 
 	// configure target on server
 	svr.AddTarget("app.echo", func(ctx *server.ServerCtx, pw packet.Writer) {
@@ -31,7 +36,8 @@ func main() {
 			ctx.Msg = "malformed packet data"
 			return
 		}
-		log.Println("Pkt contents: ", pkt.Msg)
+		requestsServed++
+		log.Printf("Served %d", requestsServed)
 		pw.Write([]byte("Received at " + time.Now().String()))
 		pw.Close()
 	})

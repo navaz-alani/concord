@@ -29,16 +29,14 @@ func main() {
 
 	pc := packet.JSONPktCreator{}
 
-	completed := 0
 	completeChan := make(chan bool)
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
-		for i := 0; i < *requests; i++ {
+		for completed := 0; completed < *requests; completed++ {
 			<-completeChan
-			completed++
-			log.Printf("Competed request %d of %d\n", completed, *requests)
+			log.Printf("Competed request %d / %d\n", completed, *requests)
 		}
 		wg.Done()
 	}(wg)
@@ -76,6 +74,5 @@ func main() {
 	}
 
 	wg.Wait()
-	end := time.Now()
-	log.Printf("%d requests in %v", completed, end.Sub(start))
+	log.Printf("%d requests in %v", *requests, time.Now().Sub(start))
 }
