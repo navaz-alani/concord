@@ -1,12 +1,14 @@
 # Concord Packet Protocol (CPP)
 
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/navaz-alani/concord)](https://pkg.go.dev/github.com/navaz-alani/concord)
+
 This is a simple application layer protocol called "Concord Packet
 Protocol" (CPP). The repository contains an implementation of the protocol using
 UDP as the transport layer protocol, with JSON for packets encoding. The
 files in the `examples` directory demonstrate a client-server interaction using
 CPP.
 
-## Packets
+## Packets & Targets
 
 Like other protocols for server-client communication, CPP works by sending and
 receiving pieces of information, called __packets__. Packets have two main
