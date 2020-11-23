@@ -5,8 +5,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/navaz-alani/voip/packet"
-	"github.com/navaz-alani/voip/throttle"
+	"github.com/navaz-alani/concord/packet"
+	"github.com/navaz-alani/concord/throttle"
 )
 
 // Internal request statuses.

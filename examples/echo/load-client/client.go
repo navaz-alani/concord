@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/navaz-alani/voip/client"
-	"github.com/navaz-alani/voip/packet"
+	"github.com/navaz-alani/concord/client"
+	"github.com/navaz-alani/concord/packet"
 )
 
 var (

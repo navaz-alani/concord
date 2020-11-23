@@ -1,6 +1,6 @@
 package server
 
-import "github.com/navaz-alani/voip/packet"
+import "github.com/navaz-alani/concord/packet"
 
 // A definition of the interface satisfied by the server. Every packet that the
 // server receives invokes a "target" in the server. A "target" is a set of

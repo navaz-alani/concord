@@ -1,6 +1,6 @@
 package client
 
-import "github.com/navaz-alani/voip/packet"
+import "github.com/navaz-alani/concord/packet"
 
 // Client defines the interface through which clients send and receive packets
 // to and from the Server.

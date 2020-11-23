@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/navaz-alani/voip/packet"
-	"github.com/navaz-alani/voip/server"
+	"github.com/navaz-alani/concord/packet"
+	"github.com/navaz-alani/concord/server"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/navaz-alani/voip/packet"
-	"github.com/navaz-alani/voip/throttle"
+	"github.com/navaz-alani/concord/packet"
+	"github.com/navaz-alani/concord/throttle"
 )
 
 // UDPServer is an implementation of the Server type. As suggested by the name,
