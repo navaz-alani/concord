@@ -23,12 +23,20 @@ import "github.com/navaz-alani/concord/packet"
 // With respect to error management, the server does not handle any errors
 // related to encoding/decoding packets. In situations where the sender can be
 // notified, a response is sent.
+//
+// The Server also offers the ability to extend its capabilities using the
+// DataProcessor and the native target and callback-queue interface. For more
+// information, check out files "server/{server_extension,data_pipeline}.go". An
+// example of a server extension is SvrCrpto which installs end-to-end
+// encryption on the server.
 type Server interface {
 	// Begin server RW loop
 	Serve() error
 	// AddTargetCallback pushes the given callback onto the callback queue for the
 	// specified target.
 	AddTargetCallback(target string, cb TargetCallback)
+	// Access the internal DataProcessor to perform extensions on the Server.
+	DataProcessor() DataProcessor
 }
 
 // TargetCallback defines the signature of a callback for a target in the server.

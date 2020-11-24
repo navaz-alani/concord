@@ -27,7 +27,7 @@ var (
 
 func main() {
 	flag.Parse()
-  totalRequests := *requests * *clients
+	totalRequests := *requests * *clients
 	rand.Seed(time.Now().Unix())
 
 	completeChan := make(chan bool) // channel over which request completions will be reported
