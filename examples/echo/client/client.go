@@ -1,43 +1,39 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"net"
 
 	"github.com/navaz-alani/concord/client"
 	"github.com/navaz-alani/concord/packet"
+	"github.com/navaz-alani/concord/throttle"
 )
 
+var svrAddr = &net.UDPAddr{
+	IP:   []byte{127, 0, 0, 1},
+	Port: 10000,
+}
+
 func main() {
-	svrAddr := &net.UDPAddr{
-		IP:   []byte{127, 0, 0, 1},
-		Port: 10000,
-	}
-
+	// instatiate client which encodes/decodes JSONPkt packets with a 4096 byte
+	// read buffer and throttles packet reads/writes over the network at maximum
+	// of 10K packets per second.
 	pc := packet.JSONPktCreator{}
-	req := pc.NewPkt("", svrAddr.String())
-	reqComposer := req.Writer()
-	reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
-	var pkt struct {
-		Msg string `json:"msg"`
-	}
-	pkt.Msg = "Hello from client"
-	if bin, err := json.Marshal(pkt); err != nil {
-		log.Fatalln("Failed to encode request")
-	} else {
-		log.Println("sending payload: ", string(bin))
-		reqComposer.Write(bin) // set packet data
-	}
-	reqComposer.Close() // commit changes to req packet
-
-	client, err := client.NewUDPClient(svrAddr, 4096, &pc)
+	client, err := client.NewUDPClient(svrAddr, 4096, &pc, throttle.Rate10k)
 	if err != nil {
 		log.Fatalln("Failed to instantiate client")
 	}
 
-	respCh := make(chan packet.Packet)
-	client.Send(req, respCh) // send request
-	resp := <-respCh         // wait till response arrives
+	// compose packet to send to server
+	req := pc.NewPkt("", svrAddr.String())
+	reqComposer := req.Writer()
+	reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
+	reqComposer.Write([]byte(`{"msg":"hello"}`))         // write JSON payload
+	reqComposer.Close()                                  // commit changes to req packet
+
+	// send packet and wait for response
+	respCh := make(chan packet.Packet) // create chanel on which to receive response
+	client.Send(req, respCh)           // send packet
+	resp := <-respCh                   // wait till response arrives
 	log.Println("Got response: ", string(resp.Data()))
 }

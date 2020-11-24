@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"log"
 	"math/rand"
@@ -11,68 +10,75 @@ import (
 
 	"github.com/navaz-alani/concord/client"
 	"github.com/navaz-alani/concord/packet"
+	"github.com/navaz-alani/concord/throttle"
 )
 
 var (
-	requests = flag.Int("request-count", 1000, "number of requests to send to server")
+	requests = flag.Int("request-per-client", 1000, "number of requests to send to server")
+	clients  = flag.Int("num-clients", 1, "number of concurrent clients")
 
 	bytesRead = 0
+
+	svrAddr = &net.UDPAddr{
+		IP:   []byte{127, 0, 0, 1},
+		Port: 10000,
+	}
 )
 
 func main() {
 	flag.Parse()
+  totalRequests := *requests * *clients
 	rand.Seed(time.Now().Unix())
-	svrAddr := &net.UDPAddr{
-		IP:   []byte{127, 0, 0, 1},
-		Port: 10000,
-	}
 
-	pc := packet.JSONPktCreator{}
-
-	completeChan := make(chan bool)
+	completeChan := make(chan bool) // channel over which request completions will be reported
 	wg := &sync.WaitGroup{}
-
 	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
-		for completed := 0; completed < *requests; completed++ {
+		for completed := 1; completed <= totalRequests; completed++ {
 			<-completeChan
 			log.Printf("Competed request %d / %d\n", completed, *requests)
 		}
 		wg.Done()
 	}(wg)
 
-	client, err := client.NewUDPClient(svrAddr, 4096, &pc)
+	// instatiate client which encodes/decodes JSONPkt packets with a 4096 byte
+	// read buffer and throttles packet reads/writes over the network at maximum
+	// of 10K packets per second.
+	pc := packet.JSONPktCreator{}
+	client, err := client.NewUDPClient(svrAddr, 4096, &pc, throttle.Rate1h)
 	if err != nil {
 		log.Fatalln("Failed to instantiate client")
 	}
 
 	start := time.Now()
-	for i := 0; i < *requests; i++ {
+	for c := 0; c < *clients; c++ {
 		go func() {
 			wg.Add(1)
-			req := pc.NewPkt("", svrAddr.String())
-			reqComposer := req.Writer()
-			reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
-			var pkt struct {
-				Msg string `json:"msg"`
-			}
-			pkt.Msg = "Hello from client"
-			if bin, err := json.Marshal(pkt); err != nil {
-				log.Fatalln("Failed to encode request")
-			} else {
-				reqComposer.Write(bin) // set packet data to pkt JSON repr
-			}
-			// can set additional metatdata ...
-			reqComposer.Close() // commit changes to req packet
+			clientWg := &sync.WaitGroup{}
+			// compose packet to send to server
+			for r := 0; r < *requests; r++ {
+				go func() {
+					clientWg.Add(1)
+					req := pc.NewPkt("", svrAddr.String())
+					reqComposer := req.Writer()
+					reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
+					reqComposer.Write([]byte(`{"msg":"hello"}`))         // write JSON payload
+					reqComposer.Close()                                  // commit changes to req packet
 
-			respCh := make(chan packet.Packet)
-			client.Send(req, respCh)
-			<-respCh // wait till response arrives
-			completeChan <- true
+					// send packet and wait for response
+					respCh := make(chan packet.Packet) // create chanel on which to receive response
+					client.Send(req, respCh)           // send packet
+					resp := <-respCh                   // wait till response arrives
+					log.Println("Got response: ", string(resp.Data()))
+					completeChan <- true
+					clientWg.Done()
+				}()
+			}
+			// wait till all requests completed
+			clientWg.Wait()
 			wg.Done()
 		}()
 	}
-
 	wg.Wait()
-	log.Printf("%d requests in %v", *requests, time.Now().Sub(start))
+	log.Printf("%d requests in %v", totalRequests, time.Now().Sub(start))
 }

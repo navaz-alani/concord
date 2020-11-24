@@ -8,6 +8,7 @@ import (
 
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
+	"github.com/navaz-alani/concord/throttle"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 		IP:   []byte{0, 0, 0, 0},
 		Port: 10000,
 	}
-	svr, err := server.NewUDPServer(&packet.JSONPktCreator{}, addr, 4096)
+	svr, err := server.NewUDPServer(addr, 4096, &packet.JSONPktCreator{}, throttle.Rate10k)
 	if err != nil {
 		log.Fatalln("Failed to initialize server")
 	}

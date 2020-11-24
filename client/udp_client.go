@@ -39,7 +39,8 @@ type UDPClient struct {
 	requests       map[string]requestCtx
 }
 
-func NewUDPClient(addr *net.UDPAddr, readBuffSize int, pc packet.PacketCreator) (Client, error) {
+func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
+	pc packet.PacketCreator, throttleRate throttle.Rate) (Client, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: []byte{0, 0, 0, 0}})
 	if err != nil {
 		return nil, err
@@ -50,7 +51,7 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int, pc packet.PacketCreator) 
 		pc:           pc,
 		addr:         addr,
 		conn:         conn,
-		th:           throttle.NewUDPThrottle(throttle.Rate10k, conn, readBuffSize),
+		th:           throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
 		sendCh:       make(chan packet.Packet),
 		recvCh:       make(chan packet.Packet),
 		doneCh:       make(chan bool),
@@ -69,11 +70,12 @@ func (c *UDPClient) Cleanup() error {
 	for i := 0; i < c.activeRoutines; i++ {
 		c.doneCh <- true
 	}
-	c.th.Shutdown()
-	c.conn.Close()
+	c.th.Shutdown() // purge throttle resources
+	c.conn.Close()  // close underlying udp connection
 	return nil
 }
 
+// Helper to generate a length-dependent ref for a packet.
 func genRef(n int) string {
 	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 	s := make([]rune, n)

@@ -23,7 +23,8 @@ type UDPServer struct {
 	completed    int
 }
 
-func NewUDPServer(pc packet.PacketCreator, addr *net.UDPAddr, readBuffSize int) (*UDPServer, error) {
+func NewUDPServer(addr *net.UDPAddr, readBuffSize int,
+	pc packet.PacketCreator, throttleRate throttle.Rate) (*UDPServer, error) {
 	// initialize connection
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
@@ -32,7 +33,7 @@ func NewUDPServer(pc packet.PacketCreator, addr *net.UDPAddr, readBuffSize int) 
 	svr := &UDPServer{
 		addr:         addr,
 		conn:         conn,
-		th:           throttle.NewUDPThrottle(throttle.Rate10k, conn, readBuffSize),
+		th:           throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
 		targets:      make(map[string][]TargetCallback),
 		pc:           pc,
 		dist:         make(chan packet.Packet),
