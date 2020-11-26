@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/navaz-alani/concord/internal"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/throttle"
 )
@@ -21,9 +22,11 @@ type UDPServer struct {
 	addr      *net.UDPAddr
 	conn      *net.UDPConn
 	th        throttle.Throttle
-	pipeline  *DataPipeline
+	pipelines struct {
+		data   *internal.DataPipeline
+		packet *internal.PacketPipeline
+	}
 	pc        packet.PacketCreator
-	targets   map[string][]TargetCallback
 	send      chan packet.Packet
 	dist      chan writePacket
 	shutdown  chan string
@@ -39,26 +42,37 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 		return nil, err
 	}
 	svr := &UDPServer{
-		addr:      addr,
-		conn:      conn,
-		th:        throttle.NewUDPThrottle(throttleRate, conn, rBuffSize),
-		pipeline:  NewDataPipeline(),
+		addr: addr,
+		conn: conn,
+		th:   throttle.NewUDPThrottle(throttleRate, conn, rBuffSize),
+		pipelines: struct {
+			data   *internal.DataPipeline
+			packet *internal.PacketPipeline
+		}{
+			data:   internal.NewDataPipeline(),
+			packet: internal.NewPacketPipeline(),
+		},
 		pc:        pc,
-		targets:   make(map[string][]TargetCallback),
 		send:      make(chan packet.Packet),
 		dist:      make(chan writePacket),
 		shutdown:  make(chan string),
 		done:      make(chan bool),
 		rBuffSize: rBuffSize,
 	}
+	// TODO: add default server targets, e.g. "svr.relay" (to forward a packet to another ip)
 	return svr, nil
 }
 
-func (svr *UDPServer) AddTarget(name string, cb TargetCallback) {
-	svr.targets[name] = append(svr.targets[name], cb)
+func (svr *UDPServer) DataProcessor() internal.DataProcessor {
+	return svr.pipelines.data
+}
+
+func (svr *UDPServer) PacketProcessor() internal.PacketProcessor {
+	return svr.pipelines.packet
 }
 
 func (svr *UDPServer) Serve() error {
+	svr.pipelines.data.Lock()
 	// begin read/write routines
 	go svr.sendPkts()
 	go svr.writePkts()
@@ -76,39 +90,42 @@ func (svr *UDPServer) fmtMsg(msg string) string {
 func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 	// pre-processing data buffer
 	var err error
-	if data, err = svr.pipeline.Process("_in_", data); err != nil {
-		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "pipeline error: "+err.Error())
+	transformCtx := &internal.TransformContext{
+		PipelineName: "_in_",
+		From:         senderAddr.String(),
+	}
+	if data, err = svr.pipelines.data.Process(transformCtx, data); err != nil {
+		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "data pipeline error: "+err.Error())
+		fmt.Println("data pipe err: " + err.Error())
+		return
+	} else if transformCtx.Stat == internal.CodeStopNoop {
+		fmt.Println("noop data pipe")
+		return
 	}
 
 	pkt := svr.pc.NewPkt("", "")
 	if err := pkt.Unmarshal(data); err != nil { // decode packet
 		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "malformed packet")
 		return
-	} else if cbq, ok := svr.targets[pkt.Meta().Get(packet.KeyTarget)]; !ok { // lookup packet target
-		svr.send <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef), senderAddr.String(), "non-existent target")
-		return
+	}
+	// execute packet target callback queue
+	ref := pkt.Meta().Get(packet.KeyRef)
+	resp := svr.pc.NewPkt(ref, senderAddr.String())
+	ctx := &internal.TargetCtx{
+		TargetName: pkt.Meta().Get(packet.KeyTarget),
+		Pkt:        pkt,
+		From:       senderAddr.String(),
+	}
+	fmt.Printf("%+v\n", ctx)
+	// execute callback queue
+	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
+		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "packet pipeline error: "+err.Error())
+		fmt.Println("packet pipe err: " + err.Error())
+	} else if ctx.Stat == internal.CodeStopNoop {
+		fmt.Println("noop packet pipe")
 	} else {
-		// execute packet target callback queue
-		ref := pkt.Meta().Get(packet.KeyRef)
-		resp := svr.pc.NewPkt(ref, senderAddr.String())
-		ctx := &ServerCtx{
-			Pkt:  pkt,
-			From: senderAddr.String(),
-		}
-		// execute callback queue
-		for _, cb := range cbq {
-			if ctx.Stat != 0 {
-				break
-			}
-			cb(ctx, resp.Writer())
-		}
 		resp.Writer().Close()
-		// if processing was successful on application side, send response
-		if ctx.Stat == 0 {
-			svr.send <- resp // send response
-		} else {
-			svr.send <- svr.pc.NewErrPkt(ref, senderAddr.String(), ctx.Msg) // notify error
-		}
+		svr.send <- resp
 	}
 }
 
@@ -147,8 +164,14 @@ func (svr *UDPServer) sendPkts() {
 			if bin, err := pkt.Marshal(); err == nil {
 				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 					// pre-processing data buffer
-					if bin, err := svr.pipeline.Process("_out_", bin); err != nil {
-						svr.send <- svr.pc.NewErrPkt("", pkt.Dest(), "pipeline error: "+err.Error())
+					transformCtx := &internal.TransformContext{
+						PipelineName: "_out_",
+						Dest:         pkt.Dest(),
+					}
+					if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
+						svr.send <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),
+							pkt.Dest(), "pipeline error: "+err.Error())
+					} else if transformCtx.Stat == internal.CodeStopNoop {
 					} else {
 						svr.dist <- writePacket{
 							data: bin,

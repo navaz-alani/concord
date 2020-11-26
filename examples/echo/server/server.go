@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/navaz-alani/concord/internal"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
 	"github.com/navaz-alani/concord/throttle"
@@ -25,7 +26,8 @@ func main() {
 	var requestsServed int
 
 	// configure target on server
-	svr.AddTarget("app.echo", func(ctx *server.ServerCtx, pw packet.Writer) {
+	svr.PacketProcessor().AddCallback("app.echo", func(ctx *internal.TargetCtx, pw packet.Writer) {
+		log.Println("got packet")
 		// decode packet data, which in this case is JSON.
 		var pkt struct {
 			Msg string `json:"msg"`

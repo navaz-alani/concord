@@ -1,6 +1,6 @@
 package server
 
-import "github.com/navaz-alani/concord/packet"
+import "github.com/navaz-alani/concord/internal"
 
 // A definition of the interface satisfied by the server. Every packet that the
 // server receives invokes a "target" in the server. A "target" is a set of
@@ -12,45 +12,33 @@ import "github.com/navaz-alani/concord/packet"
 // checked and the server executes the callback queue of the target. If a
 // request has an invalid target, the packet is ignored. The callback queue is
 // executed by calling the configured callbacks first to last, passing them the
-// same `*ServerCtx` and `packet.Writer`. The execution of the queue of callbacks
+// same `*TargetCtx` and `packet.Writer`. The execution of the queue of callbacks
 // should compose a response packet (through `pw`) to be returned to the sender.
-// The user can use a callback in the callback queue for a particular target to,
+// The user can add a callback in the callback queue for a particular target to,
 // for example, verify that the request is authenticated. If authentication
 // fails, then the rest of the queue need not be executed and the application
-// may cancel the request by setting the `Cancelled` field in the given
-// `*ServerCtx`.
+// may cancel the request by setting the `Stat` field in the given `*TargetCtx`
+// to -1 and providing an error message in the `Msg` field.
 //
 // With respect to error management, the server does not handle any errors
 // related to encoding/decoding packets. In situations where the sender can be
 // notified, a response is sent.
 //
 // The Server also offers the ability to extend its capabilities using the
-// DataProcessor and the native target and callback-queue interface. For more
-// information, check out files "server/{server_extension,data_pipeline}.go". An
-// example of a server extension is SvrCrpto which installs end-to-end
-// encryption on the server.
+// DataProcessor and the PacketProcessor. Briefly, the DataProcessor manages
+// operations to be performed on binary data. The Crypto extension, for example,
+// uses the DataProcessor to perform end to end encryption of packets by
+// decoding the (encrypted) binary data when it is read from the connection and
+// encrypting binary data before it is written to the connection (using the
+// shared key with the recipient). The PacketProcessor manages operations
+// performed on Packets i.e. targets & their callback queues. The Crypto
+// extension also uses the PacketProcessor to setup targets for key-exchange
+// with the server and with other clients.
 type Server interface {
 	// Begin server RW loop
 	Serve() error
-	// AddTargetCallback pushes the given callback onto the callback queue for the
-	// specified target.
-	AddTargetCallback(target string, cb TargetCallback)
-	// Access the internal DataProcessor to perform extensions on the Server.
-	DataProcessor() DataProcessor
-}
-
-// TargetCallback defines the signature of a callback for a target in the server.
-type TargetCallback func(ctx *ServerCtx, pw packet.Writer)
-
-// ServerCtx is the server's callback queue execution context. To end the
-// callback queue execution for a particular packet, TargetCallbacks should set
-// Stat to -1 and the server will terminate the execution. In such a case, the
-// server will inform the sender of the error using the content of the Msg
-// field. These two fields appear in the Metadata of a Packet at the keys
-// "_stat" and "_msg" respectively.
-type ServerCtx struct {
-	Stat int
-	Msg  string
-	Pkt  packet.Packet
-	From string
+	// Access the DataProcessor to perform extensions on the Server.
+	DataProcessor() internal.DataProcessor
+	// Access the PacketProcessor to configure targets and callback queues.
+	PacketProcessor() internal.PacketProcessor
 }
