@@ -52,13 +52,13 @@ func main() {
 
 	start := time.Now()
 	for c := 0; c < *clients; c++ {
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			clientWg := &sync.WaitGroup{}
 			// compose packet to send to server
 			for r := 0; r < *requests; r++ {
+				clientWg.Add(1)
 				go func() {
-					clientWg.Add(1)
 					req := pc.NewPkt("", svrAddr.String())
 					reqComposer := req.Writer()
 					reqComposer.Meta().Add(packet.KeyTarget, "app.echo") // set packet target
