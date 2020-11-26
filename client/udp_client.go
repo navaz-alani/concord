@@ -1,10 +1,12 @@
 package client
 
 import (
+	"fmt"
 	"math/rand"
 	"net"
 	"sync"
 
+	"github.com/navaz-alani/concord/internal"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/throttle"
 )
@@ -24,17 +26,26 @@ type requestCtx struct {
 	status uint8
 }
 
+type writePacket struct {
+  data []byte
+  respCh chan packet.Packet
+}
+
 // UDPClient is a Client implementation over a UDP connection, to a UDPServer.
 type UDPClient struct {
-	mu             sync.RWMutex
-	ReadBuffSize   int
-	pc             packet.PacketCreator
-	addr           *net.UDPAddr
-	conn           *net.UDPConn
+	mu           sync.RWMutex
+	ReadBuffSize int
+	pc           packet.PacketCreator
+	addr         *net.UDPAddr
+	conn         *net.UDPConn
+	pipelines    struct {
+		data   *internal.DataPipeline
+		packet *internal.PacketPipeline
+	}
 	th             throttle.Throttle
 	activeRoutines int
+	writeCh        chan *writePacket
 	sendCh         chan packet.Packet
-	recvCh         chan packet.Packet
 	doneCh         chan bool
 	requests       map[string]requestCtx
 }
@@ -51,17 +62,23 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
 		pc:           pc,
 		addr:         addr,
 		conn:         conn,
-		th:           throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
-		sendCh:       make(chan packet.Packet),
-		recvCh:       make(chan packet.Packet),
-		doneCh:       make(chan bool),
-		requests:     make(map[string]requestCtx),
+		pipelines: struct {
+			data   *internal.DataPipeline
+			packet *internal.PacketPipeline
+		}{
+			data:   internal.NewDataPipeline(),
+			packet: internal.NewPacketPipeline(),
+		},
+		th:       throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
+		writeCh:  make(chan *writePacket),
+		sendCh:   make(chan packet.Packet),
+		doneCh:   make(chan bool),
+		requests: make(map[string]requestCtx),
 	}
 	// initialize client routines
-	go client.send()
 	go client.recv()
-	go client.reply()
-	client.activeRoutines += 3
+	go client.write()
+	client.activeRoutines += 2
 	return client, nil
 }
 
@@ -77,7 +94,7 @@ func (c *UDPClient) Cleanup() error {
 
 // Helper to generate a length-dependent ref for a packet.
 func genRef(n int) string {
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+  var letters = []rune(`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+{}[];':",./<>?\|`)
 	s := make([]rune, n)
 	for i := range s {
 		s[i] = letters[rand.Intn(len(letters))]
@@ -85,44 +102,53 @@ func genRef(n int) string {
 	return string(s)
 }
 
+// Send attempts to send the given packet to its set destination address. If
+// there are any errors with processing this packet, they will be returned.
+// When a packet is received by the user in respCh, it should be checked that it
+// is not an error packet informing the caller that the write operation failed.
+// This can be done by checking the "_stat" (should be -1) and "_msg" metadata
+// fields. Note that error packets sent by the clients will set the same error
+// fields as the ones sent from the server, the only difference being that, the
+// internally sent client error packets will not have a ref metadata value,
+// whereas server sent error packets do.
 func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 	// create ref for packet
-	ref := genRef(3)
+	ref := genRef(5)
 	pkt.Meta().Add(packet.KeyRef, ref)
+	if bin, err := pkt.Marshal(); err != nil {
+		return fmt.Errorf("packet encode failure")
+	} else {
+		transformCtx := &internal.TransformContext{
+			PipelineName: "_out_",
+			Dest:         pkt.Dest(),
+		}
+		var err error
+		if bin, err = c.pipelines.data.Process(transformCtx, bin); err != nil {
+			return fmt.Errorf("data pipeline error: " + err.Error())
+		} else if transformCtx.Stat == internal.CodeStopNoop {
+      return fmt.Errorf("data pipeline enforced noop")
+    }
+    c.writeCh <- &writePacket{
+      data: bin,
+      respCh: respCh,
+    }
+	}
 	c.mu.Lock()
 	c.requests[ref] = requestCtx{
 		respCh: respCh,
-		status: requestStatusWaiting,
 	}
 	c.mu.Unlock()
-	c.sendCh <- pkt
 	return nil
 }
 
-// send routine writes packets to the connection, one at a time.
-func (c *UDPClient) send() {
+func (c *UDPClient) write() {
 	for {
 		select {
 		case <-c.doneCh:
 			return
-		case pkt := <-c.sendCh:
-			{
-				ref := pkt.Meta().Get(packet.KeyRef)
-				var ctx requestCtx
-				var refValid bool
-				if bin, err := pkt.Marshal(); err != nil {
-					c.mu.RLock()
-					if ctx, refValid = c.requests[ref]; refValid {
-						ctx.respCh <- c.pc.NewErrPkt("", "", "packet encode failure")
-						delete(c.requests, ref)
-					}
-					c.mu.RUnlock()
-				} else {
-					if _, err := c.th.WriteTo(bin, c.addr); err != nil {
-						ctx.respCh <- c.pc.NewErrPkt("", "", "packed write failure")
-						delete(c.requests, ref)
-					}
-				}
+		case pkt := <-c.writeCh:
+			if _, err := c.th.WriteTo(pkt.data, c.addr); err != nil {
+        pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
 			}
 		}
 	}
@@ -136,37 +162,32 @@ func (c *UDPClient) recv() {
 		case <-c.doneCh:
 			return
 		default:
-			{
-				if data, _, err := c.th.ReadFrom(); err == nil {
-					pkt := c.pc.NewPkt("", "")
-					if err := pkt.Unmarshal(data); err == nil {
-						// ignoring malformed response error
-						c.recvCh <- pkt
-					}
-				}
+			if data, _, err := c.th.ReadFrom(); err == nil {
+				go c.processIncoming(data)
 			}
 		}
 	}
 }
 
-// reply routine forwards received response packets to request senders.
-func (c *UDPClient) reply() {
-	var ref string
-	for {
-		select {
-		case <-c.doneCh:
-			return
-		case pkt := <-c.recvCh:
-			{
-				// send received packet to caller
-				ref = pkt.Meta().Get(packet.KeyRef)
-				c.mu.RLock()
-				if ctx, refValid := c.requests[ref]; refValid {
-					ctx.respCh <- pkt
-					delete(c.requests, ref)
-				}
-				c.mu.RUnlock()
-			}
+func (c *UDPClient) processIncoming(data []byte) {
+	transformCtx := &internal.TransformContext{
+		PipelineName: "_in_",
+	}
+	var err error
+	if data, err = c.pipelines.data.Process(transformCtx, data); err != nil {
+		return // ignoring packet if pipeline fails to process it
+	}
+
+	pkt := c.pc.NewPkt("", "")
+	if err := pkt.Unmarshal(data); err == nil {
+		// ignoring malformed response error
+		ref := pkt.Meta().Get(packet.KeyRef)
+		c.mu.RLock()
+    ctx, refValid := c.requests[ref]
+		c.mu.RUnlock()
+		if refValid {
+			ctx.respCh <- pkt
+			delete(c.requests, ref)
 		}
 	}
 }
