@@ -27,8 +27,8 @@ type requestCtx struct {
 }
 
 type writePacket struct {
-  data []byte
-  respCh chan packet.Packet
+	data   []byte
+	respCh chan packet.Packet
 }
 
 // UDPClient is a Client implementation over a UDP connection, to a UDPServer.
@@ -94,7 +94,7 @@ func (c *UDPClient) Cleanup() error {
 
 // Helper to generate a length-dependent ref for a packet.
 func genRef(n int) string {
-  var letters = []rune(`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+{}[];':",./<>?\|`)
+	var letters = []rune(`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+{}[];':",./<>?\|`)
 	s := make([]rune, n)
 	for i := range s {
 		s[i] = letters[rand.Intn(len(letters))]
@@ -126,12 +126,12 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 		if bin, err = c.pipelines.data.Process(transformCtx, bin); err != nil {
 			return fmt.Errorf("data pipeline error: " + err.Error())
 		} else if transformCtx.Stat == internal.CodeStopNoop {
-      return fmt.Errorf("data pipeline enforced noop")
-    }
-    c.writeCh <- &writePacket{
-      data: bin,
-      respCh: respCh,
-    }
+			return fmt.Errorf("data pipeline enforced noop")
+		}
+		c.writeCh <- &writePacket{
+			data:   bin,
+			respCh: respCh,
+		}
 	}
 	c.mu.Lock()
 	c.requests[ref] = requestCtx{
@@ -148,7 +148,7 @@ func (c *UDPClient) write() {
 			return
 		case pkt := <-c.writeCh:
 			if _, err := c.th.WriteTo(pkt.data, c.addr); err != nil {
-        pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
+				pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
 			}
 		}
 	}
@@ -183,7 +183,7 @@ func (c *UDPClient) processIncoming(data []byte) {
 		// ignoring malformed response error
 		ref := pkt.Meta().Get(packet.KeyRef)
 		c.mu.RLock()
-    ctx, refValid := c.requests[ref]
+		ctx, refValid := c.requests[ref]
 		c.mu.RUnlock()
 		if refValid {
 			ctx.respCh <- pkt
