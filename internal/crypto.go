@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/big"
 	"sync"
@@ -38,12 +39,12 @@ type keyStore struct {
 
 // Crypto is a cyrptographic extension for a Server/Client. It provides, mainly,
 // the ability to share keys and establish shared secrets. It uses the ECDSA
-// algorithm with (currenly)
+// algorithm with (currenly) NIST P-256 for the curve.
 type Crypto struct {
-	mu        sync.RWMutex
+	mu        sync.RWMutex // mu protects the `keys` field
+	keys      map[string]*keyStore
 	privKey   *ecdsa.PrivateKey
 	publicKey []byte
-	keys      map[string]*keyStore
 }
 
 func NewCrypto(privKey *ecdsa.PrivateKey) (*Crypto, error) {
@@ -54,10 +55,13 @@ func NewCrypto(privKey *ecdsa.PrivateKey) (*Crypto, error) {
 			privKey = pk
 		}
 	}
-	publicKey, _ := json.Marshal(PublicKey{
+	publicKey, err := json.Marshal(PublicKey{
 		X: privKey.PublicKey.X,
 		Y: privKey.PublicKey.Y,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode public key: " + err.Error())
+	}
 	cr := &Crypto{
 		mu:        sync.RWMutex{},
 		privKey:   privKey,
@@ -71,7 +75,7 @@ func (cr *Crypto) keyExchangeClientClient(ctx *TargetCtx, pw packet.Writer) {
 		IP string `json:"ip"`
 	}
 	if err := json.Unmarshal(ctx.Pkt.Data(), &otherClient); err != nil {
-		ctx.Stat = -1
+		ctx.Stat = CodeStopError
 		ctx.Msg = "malformed packet"
 		return
 	}
@@ -79,7 +83,7 @@ func (cr *Crypto) keyExchangeClientClient(ctx *TargetCtx, pw packet.Writer) {
 	keys, ok := cr.keys[otherClient.IP]
 	cr.mu.RUnlock()
 	if !ok {
-		ctx.Stat = -1
+		ctx.Stat = CodeStopError
 		ctx.Msg = "client non-existent"
 	} else {
 		otherClientPubKey, _ := json.Marshal(keys.public)
@@ -91,16 +95,12 @@ func (cr *Crypto) keyExchangeClientServer(ctx *TargetCtx, pw packet.Writer) {
 	// get public key from packet
 	var pk PublicKey
 	if err := json.Unmarshal(ctx.Pkt.Data(), &pk); err != nil {
-		ctx.Stat = -1
+		ctx.Stat = CodeStopError
 		ctx.Msg = "malformed packet"
 		return
 	}
 	// compute shared key
-	sharedKey, _ := ecdsa.PublicKey{
-		Curve: curve,
-		X:     pk.X,
-		Y:     pk.Y,
-	}.Curve.ScalarMult(pk.X, pk.Y, cr.privKey.D.Bytes())
+	sharedKey, _ := curve.ScalarMult(pk.X, pk.Y, cr.privKey.D.Bytes())
 	// store client shared & public keys
 	cr.mu.Lock()
 	cr.keys[ctx.From] = &keyStore{
