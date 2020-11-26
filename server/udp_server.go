@@ -96,10 +96,8 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 	}
 	if data, err = svr.pipelines.data.Process(transformCtx, data); err != nil {
 		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "data pipeline error: "+err.Error())
-		fmt.Println("data pipe err: " + err.Error())
 		return
 	} else if transformCtx.Stat == internal.CodeStopNoop {
-		fmt.Println("noop data pipe")
 		return
 	}
 
@@ -116,13 +114,10 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 		Pkt:        pkt,
 		From:       senderAddr.String(),
 	}
-	fmt.Printf("%+v\n", ctx)
 	// execute callback queue
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
 		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "packet pipeline error: "+err.Error())
-		fmt.Println("packet pipe err: " + err.Error())
 	} else if ctx.Stat == internal.CodeStopNoop {
-		fmt.Println("noop packet pipe")
 	} else {
 		resp.Writer().Close()
 		svr.send <- resp
