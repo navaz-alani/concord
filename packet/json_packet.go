@@ -101,6 +101,12 @@ func (p *JSONPkt) Unmarshal(bin []byte) (err error) {
 	return nil
 }
 
+func (p *JSONPkt) Clear() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.buff.Reset()
+}
+
 func (p *JSONPkt) Write(data []byte) (n int, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

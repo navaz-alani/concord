@@ -63,3 +63,42 @@ func (cr *Crypto) DecryptFrom(addr string, data []byte) ([]byte, error) {
 		return decrypted, nil
 	}
 }
+
+// EncryptE2E performs encryption on the packet's data for end-to-end encryption
+// during transit to the packet's destination. The packet is modified so that
+// its Data method returns the encrypted data. Clients should use this to
+// encrypt packets.
+//
+// Note that before this function can work, it needs a shared key with the
+// destination to which the packet is destined. If a key exchange has been
+// successfully performed, then there will most likely be no errors.
+func (cr *Crypto) EncryptE2E(pkt packet.Packet) error {
+	if encrypted, err := cr.EncryptFor(pkt.Dest(), pkt.Data()); err != nil {
+		return fmt.Errorf("e2e encrypt error: %s", err.Error())
+	} else {
+		writer := pkt.Writer()
+		writer.Clear()
+		writer.Write(encrypted)
+		writer.Close()
+		return nil
+	}
+}
+
+// DecryptE2E performs decryption on end-to-end encrypted packet data from the
+// specified sender. The packet is modified so that its Data method returns the
+// decrypted data. Clients should use this to decrypt packets.
+//
+// Note that before this function can work, it needs a shared key with the
+// sender of the packet. If a key exchange has been successfully performed, then
+// there will most likely be no errors.
+func (cr *Crypto) DecryptE2E(sender string, pkt packet.Packet) error {
+	if decrypted, err := cr.DecryptFrom(sender, pkt.Data()); err != nil {
+		return fmt.Errorf("e2e decrypt error: %s", err.Error())
+	} else {
+		writer := pkt.Writer()
+		writer.Clear()
+		writer.Write(decrypted)
+		writer.Close()
+		return nil
+	}
+}

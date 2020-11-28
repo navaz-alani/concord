@@ -63,4 +63,5 @@ type PacketCreator interface {
 type Writer interface {
 	io.WriteCloser
 	Meta() Metadata
+	Clear()
 }
