@@ -172,6 +172,7 @@ func (c *UDPClient) recv() {
 func (c *UDPClient) processIncoming(data []byte) {
 	transformCtx := &internal.TransformContext{
 		PipelineName: "_in_",
+		From:         c.addr.String(),
 	}
 	var err error
 	if data, err = c.pipelines.data.Process(transformCtx, data); err != nil {

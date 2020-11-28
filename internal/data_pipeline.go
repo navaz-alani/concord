@@ -46,8 +46,14 @@ func (d *DataPipeline) Process(ctx *TransformContext, data []byte) ([]byte, erro
 	for _, transform := range pipelines {
 		if data, err = transform(ctx, data); err != nil {
 			return data, fmt.Errorf("pipeline error: " + err.Error())
-		} else if ctx.Stat == -1 {
+		}
+		switch ctx.Stat {
+		case CodeStopError:
 			return data, fmt.Errorf("pipeline terminated: " + ctx.Msg)
+		case CodeStopNoop:
+			return data, fmt.Errorf("pipeline noop: " + ctx.Msg)
+		case CodeStopCloseSend:
+			return data, nil
 		}
 	}
 	return data, nil

@@ -27,7 +27,7 @@ type TransformContext struct {
 // BufferTransform is a function which acts on a byte slice, updating its
 // contents in some way. An example of a buffer transform is a cryptographic
 // function which decodes/encodes the contents of the buffer.
-type BufferTransform func(ctx *TransformContext, buff []byte) (result []byte, err error)
+type BufferTransform func(ctx *TransformContext, buff []byte) (result []byte)
 
 // DataProcessor is used to build pipelines for operating on binary data, using
 // BufferTransforms. Multiple BufferTransforms may be run, in succession, on
@@ -78,4 +78,16 @@ type PacketProcessor interface {
 	AddCallback(targetName string, cb TargetCallback)
 	// Process executes the callback queue for the given packet's target
 	Process(ctx *TargetCtx, pw packet.Writer) error
+}
+
+type Processor interface {
+	DataProcessor() DataProcessor
+	PacketProcessor() PacketProcessor
+}
+
+type Extension interface {
+	// Extend extends the given processor to use the Crypto extension. `kind` is a
+	// string: either "server" or "client". On a server, it installs the key
+	// exchange endpoints.
+	Extend(kind string, target Processor) error
 }

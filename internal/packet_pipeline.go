@@ -27,8 +27,11 @@ func (pp *PacketPipeline) AddCallback(targetName string, cb TargetCallback) {
 
 func (pp *PacketPipeline) Process(ctx *TargetCtx, pw packet.Writer) error {
 	pp.mu.RLock()
-	pipelines := pp.callbackQueues[ctx.TargetName]
+	pipelines, ok := pp.callbackQueues[ctx.TargetName]
 	pp.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("target not found")
+	}
 	for _, cb := range pipelines {
 		cb(ctx, pw)
 		switch ctx.Stat {
