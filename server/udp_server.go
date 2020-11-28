@@ -59,7 +59,7 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 		done:      make(chan bool),
 		rBuffSize: rBuffSize,
 	}
-	// TODO: add default server targets, e.g. "svr.relay" (to forward a packet to another ip)
+	svr.pipelines.packet.AddCallback(TargetRelay, svr.relayCallback)
 	return svr, nil
 }
 
@@ -81,6 +81,21 @@ func (svr *UDPServer) Serve() error {
 	svr.done <- true      // kill pktDist routine
 	svr.done <- true      // kill write routine
 	return fmt.Errorf(msg)
+}
+
+// relayCallback implements packet forwarding
+func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
+	ref := ctx.Pkt.Meta().Get(packet.KeyRef)
+	relayAddr := ctx.Pkt.Meta().Get(KeyRelayTo)
+	// create a new packet to be forwarded and send it
+	fwdPkt := svr.pc.NewPkt(ref, relayAddr)
+	fwdPkt.Meta().Add(KeyRelayFrom, ctx.From)
+	fwdPkt.Writer().Write(ctx.Pkt.Data())
+	fwdPkt.Writer().Close()
+	svr.send <- fwdPkt
+	// can stop processing of packet here, no more actions needed
+	ctx.Stat = internal.CodeStopNoop
+	ctx.Msg = "packet forwarded"
 }
 
 func (svr *UDPServer) fmtMsg(msg string) string {
@@ -116,9 +131,8 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 	}
 	// execute callback queue
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
-		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "packet pipeline error: "+err.Error())
-	} else if ctx.Stat == internal.CodeStopNoop {
-	} else {
+		svr.send <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
+	} else if ctx.Stat != internal.CodeStopNoop {
 		resp.Writer().Close()
 		svr.send <- resp
 	}
@@ -131,6 +145,7 @@ func (svr *UDPServer) readPkts() {
 		if data, senderAddr, err := svr.th.ReadFrom(); err != nil {
 			// send shutdown signal to end write routine
 			svr.shutdown <- svr.fmtMsg("read fail - connection error")
+			break
 		} else {
 			go svr.processPkt(data, senderAddr)
 		}

@@ -2,6 +2,15 @@ package server
 
 import "github.com/navaz-alani/concord/internal"
 
+// Default server packet relay target name and metadata keys
+const (
+	// Server target for relaying packets
+	TargetRelay string = "svr.relay"
+	// Metadata keys
+	KeyRelayFrom = "_relay_src"
+	KeyRelayTo   = "_relay_dst"
+)
+
 // A definition of the interface satisfied by the server. Every packet that the
 // server receives invokes a "target" in the server. A "target" is a set of
 // actions that can be performed (through the execution of callbacks) when a
@@ -19,6 +28,13 @@ import "github.com/navaz-alani/concord/internal"
 // fails, then the rest of the queue need not be executed and the application
 // may cancel the request by setting the `Stat` field in the given `*TargetCtx`
 // to -1 and providing an error message in the `Msg` field.
+//
+// The Server has default targets. A useful one is TargetRelay, which forwards
+// packets to other addresses. The sender of a packet sets the metadata key
+// KeyRelayTo to the address to forward the packet to. The recipient of the
+// forwarded packet then checks the KeyRelayFrom to find out which user sent the
+// packet. With the Crypto extension, this opens the doors for end-to-end
+// encrypted communication through the server.
 //
 // With respect to error management, the server does not handle any errors
 // related to encoding/decoding packets. In situations where the sender can be
