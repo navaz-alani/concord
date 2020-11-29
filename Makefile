@@ -1,4 +1,4 @@
-.PHONY: echo-all
+.PHONY: echo-all crypto-all
 # Targets for examples/echo
 echo-all: echo-server echo-client echo-load-client
 echo-server: $(wildcard ./examples/echo/server/*.go)
