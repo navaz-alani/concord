@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/navaz-alani/concord/internal"
+	throttle "github.com/navaz-alani/concord/internal/throttle"
 	"github.com/navaz-alani/concord/packet"
-	"github.com/navaz-alani/concord/throttle"
 )
 
 // Internal request statuses.
