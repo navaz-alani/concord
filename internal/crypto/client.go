@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/navaz-alani/concord/internal"
@@ -101,4 +102,20 @@ func (cr *Crypto) DecryptE2E(sender string, pkt packet.Packet) error {
 		writer.Close()
 		return nil
 	}
+}
+
+// ProcessKeyExResp processes the response to a key-exchange with the given
+// address (server address if server and client address otherwise). It contains
+func (cr *Crypto) ProcessKeyExResp(addr string, resp packet.Packet) error {
+	var pk PublicKey
+	if err := json.Unmarshal(resp.Data(), &pk); err != nil {
+		return fmt.Errorf("packet decode error: " + err.Error())
+	}
+	// store key
+	cr.setKeyStore(addr, &keyStore{
+		keySent: true,
+		public:  &pk,
+		shared:  cr.computeSharedKey(&pk),
+	})
+	return nil
 }

@@ -42,17 +42,12 @@ func (d *DataPipeline) Process(ctx *TransformContext, data []byte) ([]byte, erro
 	d.mu.RLock()
 	pipelines := d.pipelines[ctx.PipelineName]
 	d.mu.RUnlock()
-	var err error
 	for _, transform := range pipelines {
-		if data, err = transform(ctx, data); err != nil {
-			return data, fmt.Errorf("pipeline error: " + err.Error())
-		}
+		data = transform(ctx, data)
 		switch ctx.Stat {
 		case CodeStopError:
 			return data, fmt.Errorf("pipeline terminated: " + ctx.Msg)
-		case CodeStopNoop:
-			return data, fmt.Errorf("pipeline noop: " + ctx.Msg)
-		case CodeStopCloseSend:
+		case CodeStopNoop, CodeStopCloseSend:
 			return data, nil
 		}
 	}

@@ -18,7 +18,15 @@ const (
 	TargetKeyExchangeClient = "crypto.kex-cc"
 )
 
-var curve = elliptic.P256()
+// Metadata keys for Crypto extension
+const (
+	// KeyNoCipher is a metadata key, which when set to "true" in a packet causes
+	// the Crypto extension to skip that packet.
+	KeyNoCipher = "_no_crypto"
+)
+
+// Curve is the elliptic curve used by Crypto.
+var Curve = elliptic.P256()
 
 // PublicKey is the structure of the public key used by Crypto, and its clients.
 // The curve used needs to be the same for all clients.
@@ -28,8 +36,22 @@ type PublicKey struct {
 }
 
 type keyStore struct {
-	shared *big.Int
-	public PublicKey
+	mu      sync.RWMutex // mu protects `ketSent`
+	keySent bool         // indicates whether or not this key has been shared
+	shared  *big.Int
+	public  *PublicKey
+}
+
+func (ks *keyStore) getKeySent() bool {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	return ks.keySent
+}
+
+func (ks *keyStore) setKeySent(s bool) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	ks.keySent = s
 }
 
 // Crypto is a cyrptographic extension for a Server/Client. It provides, mainly,
@@ -54,7 +76,7 @@ type Crypto struct {
 
 func NewCrypto(privKey *ecdsa.PrivateKey) (*Crypto, error) {
 	if privKey == nil {
-		if pk, err := ecdsa.GenerateKey(curve, rand.Reader); err != nil {
+		if pk, err := ecdsa.GenerateKey(Curve, rand.Reader); err != nil {
 			return nil, err
 		} else {
 			privKey = pk
@@ -74,6 +96,11 @@ func NewCrypto(privKey *ecdsa.PrivateKey) (*Crypto, error) {
 		publicKey: publicKey,
 	}
 	return cr, nil
+}
+
+func (cr *Crypto) computeSharedKey(pk *PublicKey) *big.Int {
+	x, _ := Curve.ScalarMult(pk.X, pk.Y, cr.privKey.D.Bytes())
+	return x
 }
 
 // Extend installs Crypto onto the given Processor's pipeline.
@@ -114,10 +141,21 @@ func (cr *Crypto) getKeyStore(addr string) (*keyStore, bool) {
 	return ks, ok
 }
 
+// encryptTransport is the data pipeline BufferTransform which encrypts packet
+// data based on the destination of the packet. If a key exchange with the
+// destination has not been performed, then the transform will be the identity
+// transform (will do nothing to the contents of the buffer).
 func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) []byte {
 	if k, ok := cr.getKeyStore(ctx.Dest); !ok {
-		ctx.Stat = internal.CodeStopError
-		ctx.Msg = "no shared key to encrypt data"
+		return buff
+	} else if !k.getKeySent() { // ctx.Dest does not have public key for server yet...
+		// Here, it is being assumed that the first outgoing packet to `ctx.Dest` is
+		// the public key of the server. This implies that the connection should be
+		// used atomically when the key-exchange is being performed i.e. no other
+		// packets should be going between the server and `ctx.Dest` from the time
+		// that the key exchange request is sent to when the server has sent a
+		// response.
+		k.setKeySent(true)
 		return buff
 	} else if ciphertext, err := encryptAES(k.shared.Bytes(), buff); err != nil {
 		ctx.Stat = internal.CodeStopError
@@ -128,10 +166,12 @@ func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) 
 	}
 }
 
+// decryptTransport is the data pipeline BufferTransform which decrypts packet
+// data based on the sender of the packet. If a key exchange with the
+// sender has not been performed, then the transform will be the identity
+// transform (will do nothing to the contents of the buffer).
 func (cr *Crypto) decryptTransport(ctx *internal.TransformContext, buff []byte) []byte {
 	if k, ok := cr.getKeyStore(ctx.From); !ok {
-		ctx.Stat = internal.CodeStopNoop
-		ctx.Msg = "no shared key to decrypt data"
 		return buff
 	} else if decrypted, err := decryptAES(k.shared.Bytes(), buff); err != nil {
 		ctx.Stat = internal.CodeStopError

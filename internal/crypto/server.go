@@ -8,6 +8,8 @@ import (
 )
 
 func (cr *Crypto) installOnServer(p internal.Processor) error {
+	p.PacketProcessor().AddCallback(TargetKeyExchangeServer, cr.keyExchangeServer)
+	p.PacketProcessor().AddCallback(TargetKeyExchangeClient, cr.keyExchangeClient)
 	return nil
 }
 
@@ -19,15 +21,14 @@ func (cr *Crypto) keyExchangeServer(ctx *internal.TargetCtx, pw packet.Writer) {
 		ctx.Msg = "malformed packet"
 		return
 	}
-	// compute shared key
-	sharedKey, _ := curve.ScalarMult(pk.X, pk.Y, cr.privKey.D.Bytes())
 	// store client shared & public keys
 	cr.setKeyStore(ctx.From, &keyStore{
-		shared: sharedKey,
-		public: pk,
+		public: &pk,
+		shared: cr.computeSharedKey(&pk),
 	})
 	// write svr public key to response packet
 	pw.Write(cr.publicKey)
+	ctx.Stat = internal.CodeStopCloseSend
 }
 
 func (cr *Crypto) keyExchangeClient(ctx *internal.TargetCtx, pw packet.Writer) {
@@ -39,8 +40,7 @@ func (cr *Crypto) keyExchangeClient(ctx *internal.TargetCtx, pw packet.Writer) {
 		ctx.Msg = "malformed packet"
 		return
 	}
-	keys, ok := cr.getKeyStore(otherClient.IP)
-	if !ok {
+	if keys, ok := cr.getKeyStore(otherClient.IP); !ok {
 		ctx.Stat = internal.CodeStopError
 		ctx.Msg = "client non-existent"
 	} else {

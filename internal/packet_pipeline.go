@@ -39,7 +39,6 @@ func (pp *PacketPipeline) Process(ctx *TargetCtx, pw packet.Writer) error {
 			return fmt.Errorf(ctx.Msg)
 		case CodeStopNoop, CodeStopCloseSend: // stop cbq exec, no error
 			return nil
-		default:
 		}
 	}
 	return nil

@@ -82,6 +82,14 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
 	return client, nil
 }
 
+func (c *UDPClient) PacketProcessor() internal.PacketProcessor {
+	return c.pipelines.packet
+}
+
+func (c *UDPClient) DataProcessor() internal.DataProcessor {
+	return c.pipelines.data
+}
+
 func (c *UDPClient) Cleanup() error {
 	// kill all active routines
 	for i := 0; i < c.activeRoutines; i++ {
