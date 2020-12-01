@@ -46,13 +46,17 @@ type UDPClient struct {
 	activeRoutines int
 	writeCh        chan *writePacket
 	sendCh         chan packet.Packet
+	miscCh         chan packet.Packet
 	doneCh         chan bool
 	requests       map[string]requestCtx
 }
 
-func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
+func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize int,
 	pc packet.PacketCreator, throttleRate throttle.Rate) (Client, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: []byte{0, 0, 0, 0}})
+	if listenAddr == nil {
+		listenAddr = &net.UDPAddr{IP: []byte{0, 0, 0, 0}}
+	}
+	conn, err := net.ListenUDP("udp", listenAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +64,7 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
 		mu:           sync.RWMutex{},
 		ReadBuffSize: readBuffSize,
 		pc:           pc,
-		addr:         addr,
+		addr:         svrAddr,
 		conn:         conn,
 		pipelines: struct {
 			data   *internal.DataPipeline
@@ -72,6 +76,7 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
 		th:       throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
 		writeCh:  make(chan *writePacket),
 		sendCh:   make(chan packet.Packet),
+		miscCh:   make(chan packet.Packet),
 		doneCh:   make(chan bool),
 		requests: make(map[string]requestCtx),
 	}
@@ -80,6 +85,10 @@ func NewUDPClient(addr *net.UDPAddr, readBuffSize int,
 	go client.write()
 	client.activeRoutines += 2
 	return client, nil
+}
+
+func (c *UDPClient) Misc() <-chan packet.Packet {
+	return c.miscCh
 }
 
 func (c *UDPClient) PacketProcessor() internal.PacketProcessor {
@@ -120,15 +129,20 @@ func genRef(n int) string {
 // internally sent client error packets will not have a ref metadata value,
 // whereas server sent error packets do.
 func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
-	// create ref for packet
-	ref := genRef(5)
-	pkt.Meta().Add(packet.KeyRef, ref)
+	// create ref for packet, if doesn't already exist
+	var ref string
+	if ref = pkt.Meta().Get(packet.KeyRef); ref == "" {
+		ref = genRef(5)
+		pkt.Meta().Add(packet.KeyRef, ref)
+	}
 	if bin, err := pkt.Marshal(); err != nil {
 		return fmt.Errorf("packet encode failure")
 	} else {
 		transformCtx := &internal.TransformContext{
+			PipelineCtx: internal.PipelineCtx{
+				Pkt: pkt,
+			},
 			PipelineName: "_out_",
-			Dest:         pkt.Dest(),
 		}
 		var err error
 		if bin, err = c.pipelines.data.Process(transformCtx, bin); err != nil {
@@ -194,9 +208,13 @@ func (c *UDPClient) processIncoming(data []byte) {
 		c.mu.RLock()
 		ctx, refValid := c.requests[ref]
 		c.mu.RUnlock()
-		if refValid {
+		if refValid && ctx.respCh != nil {
 			ctx.respCh <- pkt
 			delete(c.requests, ref)
+		} else {
+			// miscellaneous packets are sent to the client's miscCh channel and can
+			// be handled by the client.
+			c.miscCh <- pkt
 		}
 	}
 }

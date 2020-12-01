@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/navaz-alani/concord/internal"
+	throttle "github.com/navaz-alani/concord/internal/throttle"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
-	"github.com/navaz-alani/concord/throttle"
 )
 
 func main() {

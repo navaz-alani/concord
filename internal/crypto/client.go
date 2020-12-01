@@ -12,6 +12,11 @@ func (cr *Crypto) installOnClient(p internal.Processor) error {
 	return nil
 }
 
+func (cr *Crypto) IsKeyExchanged(addr string) bool {
+	_, ok := cr.getKeyStore(addr)
+	return ok
+}
+
 // ConfigureKeyExClientPkt writes the configuration (target, metadata, body,
 // etc) for a client-client key-exchange with the given address to the packet.
 // The packet being written to must be new and after a call to this method, the
@@ -73,8 +78,8 @@ func (cr *Crypto) DecryptFrom(addr string, data []byte) ([]byte, error) {
 // Note that before this function can work, it needs a shared key with the
 // destination to which the packet is destined. If a key exchange has been
 // successfully performed, then there will most likely be no errors.
-func (cr *Crypto) EncryptE2E(pkt packet.Packet) error {
-	if encrypted, err := cr.EncryptFor(pkt.Dest(), pkt.Data()); err != nil {
+func (cr *Crypto) EncryptE2E(to string, pkt packet.Packet) error {
+	if encrypted, err := cr.EncryptFor(to, pkt.Data()); err != nil {
 		return fmt.Errorf("e2e encrypt error: %s", err.Error())
 	} else {
 		writer := pkt.Writer()
@@ -105,7 +110,7 @@ func (cr *Crypto) DecryptE2E(sender string, pkt packet.Packet) error {
 }
 
 // ProcessKeyExResp processes the response to a key-exchange with the given
-// address (server address if server and client address otherwise). It contains
+// address (server address if server and client address otherwise).
 func (cr *Crypto) ProcessKeyExResp(addr string, resp packet.Packet) error {
 	var pk PublicKey
 	if err := json.Unmarshal(resp.Data(), &pk); err != nil {

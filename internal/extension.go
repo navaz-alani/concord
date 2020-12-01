@@ -14,14 +14,18 @@ const (
 	CodeStopNoop = 2
 )
 
+type PipelineCtx struct {
+	Pkt  packet.Packet
+	Stat int
+	Msg  string
+}
+
 // TransformContext is information shared by all BufferTransform functions
 // executed on a buffer.
 type TransformContext struct {
+	PipelineCtx
 	PipelineName string
 	From         string
-	Dest         string
-	Stat         int
-	Msg          string
 }
 
 // BufferTransform is a function which acts on a byte slice, updating its
@@ -62,10 +66,8 @@ type TargetCallback func(ctx *TargetCtx, pw packet.Writer)
 // Each of these status codes have names, provided in the constants section of
 // the `internal` package, which are more sensible and easy to remember.
 type TargetCtx struct {
+	PipelineCtx
 	TargetName string
-	Stat       int
-	Msg        string
-	Pkt        packet.Packet
 	From       string
 }
 

@@ -22,7 +22,7 @@ const (
 const (
 	// KeyNoCipher is a metadata key, which when set to "true" in a packet causes
 	// the Crypto extension to skip that packet.
-	KeyNoCipher = "_no_crypto"
+	KeyNoCrypto = "_no_crypto"
 )
 
 // Curve is the elliptic curve used by Crypto.
@@ -146,7 +146,11 @@ func (cr *Crypto) getKeyStore(addr string) (*keyStore, bool) {
 // destination has not been performed, then the transform will be the identity
 // transform (will do nothing to the contents of the buffer).
 func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) []byte {
-	if k, ok := cr.getKeyStore(ctx.Dest); !ok {
+	switch ctx.Pkt.Meta().Get(KeyNoCrypto) {
+	case "true", "t", "yes", "y", "1":
+		return buff
+	}
+	if k, ok := cr.getKeyStore(ctx.Pkt.Dest()); !ok {
 		return buff
 	} else if !k.getKeySent() { // ctx.Dest does not have public key for server yet...
 		// Here, it is being assumed that the first outgoing packet to `ctx.Dest` is
@@ -174,8 +178,8 @@ func (cr *Crypto) decryptTransport(ctx *internal.TransformContext, buff []byte) 
 	if k, ok := cr.getKeyStore(ctx.From); !ok {
 		return buff
 	} else if decrypted, err := decryptAES(k.shared.Bytes(), buff); err != nil {
-		ctx.Stat = internal.CodeStopError
-		ctx.Msg = "decryption error: " + err.Error()
+		// the payload could not be encrypted - do not know yet... so this
+		// decryption error may not really be a processing error.
 		return buff
 	} else {
 		return decrypted

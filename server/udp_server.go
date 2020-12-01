@@ -93,7 +93,7 @@ func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
 	fwdPkt.Writer().Write(ctx.Pkt.Data())
 	fwdPkt.Writer().Close()
 	svr.send <- fwdPkt
-	// can stop processing of packet here, no more actions needed
+	//can stop processing of packet here, no more actions needed
 	ctx.Stat = internal.CodeStopNoop
 	ctx.Msg = "packet forwarded"
 }
@@ -125,8 +125,10 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 	ref := pkt.Meta().Get(packet.KeyRef)
 	resp := svr.pc.NewPkt(ref, senderAddr.String())
 	ctx := &internal.TargetCtx{
+		PipelineCtx: internal.PipelineCtx{
+			Pkt: pkt,
+		},
 		TargetName: pkt.Meta().Get(packet.KeyTarget),
-		Pkt:        pkt,
 		From:       senderAddr.String(),
 	}
 	// execute callback queue
@@ -175,8 +177,10 @@ func (svr *UDPServer) sendPkts() {
 				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 					// pre-processing data buffer
 					transformCtx := &internal.TransformContext{
+						PipelineCtx: internal.PipelineCtx{
+							Pkt: pkt,
+						},
 						PipelineName: "_out_",
-						Dest:         pkt.Dest(),
 					}
 					if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
 						svr.send <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),

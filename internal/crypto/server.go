@@ -27,6 +27,7 @@ func (cr *Crypto) keyExchangeServer(ctx *internal.TargetCtx, pw packet.Writer) {
 		shared: cr.computeSharedKey(&pk),
 	})
 	// write svr public key to response packet
+	pw.Meta().Add(KeyNoCrypto, "true")
 	pw.Write(cr.publicKey)
 	ctx.Stat = internal.CodeStopCloseSend
 }
@@ -45,6 +46,7 @@ func (cr *Crypto) keyExchangeClient(ctx *internal.TargetCtx, pw packet.Writer) {
 		ctx.Msg = "client non-existent"
 	} else {
 		otherClientPubKey, _ := json.Marshal(keys.public)
+		pw.Meta().Add(KeyNoCrypto, "true")
 		pw.Write(otherClientPubKey)
 	}
 }

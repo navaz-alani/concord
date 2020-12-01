@@ -10,9 +10,9 @@ import (
 
 	"github.com/navaz-alani/concord/internal"
 	crypto "github.com/navaz-alani/concord/internal/crypto"
+	throttle "github.com/navaz-alani/concord/internal/throttle"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
-	"github.com/navaz-alani/concord/throttle"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	}
 	svr, err := server.NewUDPServer(addr, 4096, &packet.JSONPktCreator{}, throttle.Rate10k)
 	if err != nil {
-		log.Fatalln("Failed to initialize server")
+		log.Fatalln("Failed to initialize server: ", err.Error())
 	}
 
 	// generate private key

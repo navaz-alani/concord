@@ -5,8 +5,8 @@ import (
 	"net"
 
 	"github.com/navaz-alani/concord/client"
+	throttle "github.com/navaz-alani/concord/internal/throttle"
 	"github.com/navaz-alani/concord/packet"
-	"github.com/navaz-alani/concord/throttle"
 )
 
 var svrAddr = &net.UDPAddr{
@@ -19,7 +19,7 @@ func main() {
 	// read buffer and throttles packet reads/writes over the network at maximum
 	// of 10K packets per second.
 	pc := packet.JSONPktCreator{}
-	client, err := client.NewUDPClient(svrAddr, 4096, &pc, throttle.Rate10k)
+	client, err := client.NewUDPClient(svrAddr, nil, 4096, &pc, throttle.Rate10k)
 	if err != nil {
 		log.Fatalln("Failed to instantiate client")
 	}
