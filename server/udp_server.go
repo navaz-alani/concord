@@ -26,12 +26,11 @@ type UDPServer struct {
 		data   *internal.DataPipeline
 		packet *internal.PacketPipeline
 	}
-	pc        packet.PacketCreator
-	send      chan packet.Packet
-	dist      chan writePacket
-	shutdown  chan string
-	done      chan bool
-	rBuffSize int
+	pc         packet.PacketCreator
+	sendStream chan packet.Packet
+	distStream chan writePacket
+	shutdown   chan string
+	rBuffSize  int
 }
 
 func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
@@ -52,12 +51,11 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 			data:   internal.NewDataPipeline(),
 			packet: internal.NewPacketPipeline(),
 		},
-		pc:        pc,
-		send:      make(chan packet.Packet),
-		dist:      make(chan writePacket),
-		shutdown:  make(chan string),
-		done:      make(chan bool),
-		rBuffSize: rBuffSize,
+		pc:         pc,
+		sendStream: make(chan packet.Packet),
+		distStream: make(chan writePacket),
+		shutdown:   make(chan string),
+		rBuffSize:  rBuffSize,
 	}
 	svr.pipelines.packet.AddCallback(TargetRelay, svr.relayCallback)
 	return svr, nil
@@ -71,20 +69,26 @@ func (svr *UDPServer) PacketProcessor() internal.PacketProcessor {
 	return svr.pipelines.packet
 }
 
+// Serve initiates the server's underlying read/write routines over the
+// unerlying connection. It blocks until there is an error in reading over the
+// connection, which is then returned.
 func (svr *UDPServer) Serve() error {
+	defer func() {
+		close(svr.distStream) // close writePkts routine
+		close(svr.sendStream) // close sendPkts routine
+	}()
 	svr.pipelines.data.Lock()
-	// begin read/write routines
-	go svr.sendPkts()
-	go svr.writePkts()
-	go svr.readPkts()
-	msg := <-svr.shutdown // wait for shutdown signal
-	svr.done <- true      // kill pktDist routine
-	svr.done <- true      // kill write routine
-	return fmt.Errorf(msg)
+	// fire off routines
+	go svr.sendPkts()  // pre-process packets before writing
+	go svr.writePkts() // write packets to connection
+	go svr.readPkts()  // read packets from connection
+	// return shutdown message when read fails (readPkts routine will exit)
+	return fmt.Errorf(<-svr.shutdown)
 }
 
 // relayCallback implements packet forwarding
 func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
+	sendStream := svr.send() // send-only access to svr.sendStream
 	ref := ctx.Pkt.Meta().Get(packet.KeyRef)
 	relayAddr := ctx.Pkt.Meta().Get(KeyRelayTo)
 	// create a new packet to be forwarded and send it
@@ -92,17 +96,22 @@ func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
 	fwdPkt.Meta().Add(KeyRelayFrom, ctx.From)
 	fwdPkt.Writer().Write(ctx.Pkt.Data())
 	fwdPkt.Writer().Close()
-	svr.send <- fwdPkt
+	sendStream <- fwdPkt
 	//can stop processing of packet here, no more actions needed
 	ctx.Stat = internal.CodeStopNoop
 	ctx.Msg = "packet forwarded"
 }
 
+func (svr *UDPServer) dist() chan<- writePacket   { return svr.distStream }
+func (svr *UDPServer) send() chan<- packet.Packet { return svr.sendStream }
+
 func (svr *UDPServer) fmtMsg(msg string) string {
 	return fmt.Sprintf("[UDPServer@%s] %s", svr.addr.String(), msg)
 }
 
-func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
+// processIncoming runs the given data through the server's data pipelines.
+func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
+	sendStream := svr.send() // send-only access to svr.sendStream
 	// pre-processing data buffer
 	var err error
 	transformCtx := &internal.TransformContext{
@@ -110,7 +119,7 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 		From:         senderAddr.String(),
 	}
 	if data, err = svr.pipelines.data.Process(transformCtx, data); err != nil {
-		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "data pipeline error: "+err.Error())
+		sendStream <- svr.pc.NewErrPkt("", senderAddr.String(), "data pipeline error: "+err.Error())
 		return
 	} else if transformCtx.Stat == internal.CodeStopNoop {
 		return
@@ -118,7 +127,7 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 
 	pkt := svr.pc.NewPkt("", "")
 	if err := pkt.Unmarshal(data); err != nil { // decode packet
-		svr.send <- svr.pc.NewErrPkt("", senderAddr.String(), "malformed packet")
+		sendStream <- svr.pc.NewErrPkt("", senderAddr.String(), "malformed packet")
 		return
 	}
 	// execute packet target callback queue
@@ -133,15 +142,43 @@ func (svr *UDPServer) processPkt(data []byte, senderAddr net.Addr) {
 	}
 	// execute callback queue
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
-		svr.send <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
+		sendStream <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
 	} else if ctx.Stat != internal.CodeStopNoop {
 		resp.Writer().Close()
-		svr.send <- resp
+		sendStream <- resp
+	}
+}
+
+// processOutgoing runs the given `pkt` through the client pipelines and when
+// done, sends the final data to be written to the connection (through the
+// server `distStream`).
+func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
+	if bin, err := pkt.Marshal(); err == nil {
+		if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
+			// pre-processing data buffer
+			transformCtx := &internal.TransformContext{
+				PipelineCtx: internal.PipelineCtx{
+					Pkt: pkt,
+				},
+				PipelineName: "_out_",
+			}
+			if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
+				svr.send() <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),
+					pkt.Dest(), "pipeline error: "+err.Error())
+			} else if transformCtx.Stat == internal.CodeStopNoop {
+			} else {
+				svr.dist() <- writePacket{
+					data: bin,
+					addr: addr,
+				}
+			}
+		}
 	}
 }
 
 // read is a routune which reads and decodes packets from the underlying
-// connection and spawns a routine to process each packet read.
+// connection and spawns a routine to process each packet read. It is the only
+// writer to the server's `shutdown` channel.
 func (svr *UDPServer) readPkts() {
 	for {
 		if data, senderAddr, err := svr.th.ReadFrom(); err != nil {
@@ -149,53 +186,27 @@ func (svr *UDPServer) readPkts() {
 			svr.shutdown <- svr.fmtMsg("read fail - connection error")
 			break
 		} else {
-			go svr.processPkt(data, senderAddr)
+			go svr.processIncoming(data, senderAddr)
 		}
 	}
 }
 
 // write is a routine which distributes packets by writing them over the
-// underlying UDP connection. Any encoding/write errors are ignored.
+// underlying UDP connection. Any encoding/write errors are ignored. It is the
+// only consumer of distStream. It also serves the purpose of throttling the
+// packet-write-rate of the server.
 func (svr *UDPServer) writePkts() {
 	var pkt writePacket
-	for {
-		select {
-		case pkt = <-svr.dist:
-			svr.th.WriteTo(pkt.data, pkt.addr)
-		case <-svr.done: // server is done, break out
-			break
-		}
+	for pkt = range svr.distStream {
+		svr.th.WriteTo(pkt.data, pkt.addr) // throttled write operation
 	}
 }
 
+// sendPkts is a routine which processes packets before they are written over
+// the conecction. It is the only consumer of sendStream.
 func (svr *UDPServer) sendPkts() {
 	var pkt packet.Packet
-	for {
-		select {
-		case pkt = <-svr.send:
-			if bin, err := pkt.Marshal(); err == nil {
-				if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
-					// pre-processing data buffer
-					transformCtx := &internal.TransformContext{
-						PipelineCtx: internal.PipelineCtx{
-							Pkt: pkt,
-						},
-						PipelineName: "_out_",
-					}
-					if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
-						svr.send <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),
-							pkt.Dest(), "pipeline error: "+err.Error())
-					} else if transformCtx.Stat == internal.CodeStopNoop {
-					} else {
-						svr.dist <- writePacket{
-							data: bin,
-							addr: addr,
-						}
-					}
-				}
-			}
-		case <-svr.done: // server is done, break out
-			break
-		}
+	for pkt = range svr.sendStream {
+		go svr.processOutgoing(pkt)
 	}
 }
