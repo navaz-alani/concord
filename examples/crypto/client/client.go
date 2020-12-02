@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/ecdsa"
-	"crypto/rand"
-	"fmt"
 	"log"
 	"net"
 
@@ -31,57 +28,36 @@ var (
 	}
 )
 
-func createSecureClient(addr *net.UDPAddr) (client.Client, *crypto.Crypto) {
-	client, err := client.NewUDPClient(svrAddr, addr, 4096, &pc, throttle.Rate10k)
-	if err != nil {
-		log.Fatalln("Failed to instantiate client")
+func createSecureClient(listenAddr *net.UDPAddr) (cl client.Client, cr *crypto.Crypto) {
+	var err error
+	if cl, err = client.NewUDPClient(svrAddr, listenAddr, 4096, &pc, throttle.Rate10k); err != nil {
+		log.Fatalf("client init err: %s", err.Error())
 	}
-	// generate private key
-	privKey, err := ecdsa.GenerateKey(crypto.Curve, rand.Reader)
-	if err != nil {
-		log.Fatalln("Failed to generate public key: " + err.Error())
+	if cr, err = crypto.NewSecureUDPClient(cl, svrAddr.String(), pc.NewPkt("", svrAddr.String())); err != nil {
+		log.Fatalf("crypto err: %s", err.Error())
 	}
-	// initialize Crypto extension
-	cr, err := crypto.NewCrypto(privKey)
-	if err != nil {
-		log.Fatalln("Cryto extenstion error: " + err.Error())
-	}
-	// perform key-exchange with server
-	svrKexPkt := pc.NewPkt("", svrAddr.String())
-	cr.ConfigureKeyExServerPkt(svrKexPkt.Writer())
-	kexResp := make(chan packet.Packet)
-	client.Send(svrKexPkt, kexResp)
-	kexRespPkt := <-kexResp
-	if err := cr.ProcessKeyExResp(svrAddr.String(), kexRespPkt); err != nil {
-		log.Fatalln("Crypto server handshake error: ", err.Error())
-	}
-	// install extension on server pipelines to provide transport encryption
-	cr.Extend("client", client)
-	return client, cr
+	return cl, cr
 }
 
-// performs key exchange with given addr
-func kexWith(client client.Client, cr *crypto.Crypto, addr *net.UDPAddr) error {
+func makeRelayPkt(to string, msg string) packet.Packet {
 	pkt := pc.NewPkt("", svrAddr.String())
-	cr.ConfigureKeyExClientPkt(addr.String(), pkt.Writer())
-	pkt.Writer().Close()
-	respChan := make(chan packet.Packet)
-	client.Send(pkt, respChan)
-	if err := cr.ProcessKeyExResp(addr.String(), <-respChan); err != nil {
-		return fmt.Errorf("Client-Client kex failed with: %s\nerror: %s", addr.String(), err.Error())
-	}
-	return nil
+	writer := pkt.Writer()
+	writer.Meta().Add(packet.KeyTarget, server.TargetRelay)
+	writer.Meta().Add(server.KeyRelayTo, to) // set server target to "relay"
+	writer.Write([]byte(msg))
+	writer.Close()
+	return pkt
 }
 
 func main() {
-	// instantiate clients
+	// instantiate secure clients
 	clientA, crA := createSecureClient(clientA_Addr)
 	clientB, crB := createSecureClient(clientB_Addr)
 
 	// perform key-exchange between clients
-	if err := kexWith(clientA, crA, clientB_Addr); err != nil {
+	if err := crA.ClientKEx(clientA, clientB_Addr.String(), pc.NewPkt("", svrAddr.String())); err != nil {
 		log.Fatalf("clientA kex fail: %s\n", err.Error())
-	} else if err = kexWith(clientB, crB, clientA_Addr); err != nil {
+	} else if err = crB.ClientKEx(clientA, clientA_Addr.String(), pc.NewPkt("", svrAddr.String())); err != nil {
 		log.Fatalf("clientB kex fail: %s\n", err.Error())
 	}
 
@@ -90,10 +66,10 @@ func main() {
 		var pkt packet.Packet
 		pkt = <-clientB.Misc()
 		sender := pkt.Meta().Get(server.KeyRelayFrom)
-		if err := crB.DecryptE2E(sender, pkt); err != nil {
-			log.Println("clientB: got relay pkt decrypt-e2e err: " + err.Error())
+		if err := crB.DecryptE2E(sender, pkt); err != nil { // decrypt incoming data
+			log.Printf("clientB: got relay pkt decrypt-e2e err: %s", err.Error())
 		} else {
-			log.Println("clientB: got relay pkt with data: " + string(pkt.Data()))
+			log.Printf("clientB: got relay pkt with data: %s", string(pkt.Data()))
 			respPkt := makeRelayPkt(clientA_Addr.String(), "super-secret-msg-from-B")
 			respPkt.Meta().Add(packet.KeyRef, pkt.Meta().Get(packet.KeyRef))
 			crB.EncryptE2E(clientA_Addr.String(), respPkt)
@@ -110,14 +86,4 @@ func main() {
 	resp := <-respCh
 	crA.DecryptE2E(clientB_Addr.String(), resp)
 	log.Printf("clientA: response from clientB: %s\n", string(resp.Data()))
-}
-
-func makeRelayPkt(to string, msg string) packet.Packet {
-	pkt := pc.NewPkt("", svrAddr.String())
-	writer := pkt.Writer()
-	writer.Meta().Add(packet.KeyTarget, server.TargetRelay)
-	writer.Meta().Add(server.KeyRelayTo, to) // set server target to "relay"
-	writer.Write([]byte(msg))
-	writer.Close()
-	return pkt
 }

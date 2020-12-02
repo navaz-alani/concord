@@ -1,9 +1,12 @@
 package internal
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 
+	"github.com/navaz-alani/concord/client"
 	"github.com/navaz-alani/concord/internal"
 	"github.com/navaz-alani/concord/packet"
 )
@@ -123,4 +126,55 @@ func (cr *Crypto) ProcessKeyExResp(addr string, resp packet.Packet) error {
 		shared:  cr.computeSharedKey(&pk),
 	})
 	return nil
+}
+
+// ServerKEx performs a key exchange between the client and the server at
+// svrAddr.
+func (cr *Crypto) ServerKEx(client client.Client, svrAddr string, pkt packet.Packet) error {
+	cr.ConfigureKeyExServerPkt(pkt.Writer())
+	kexResp := make(chan packet.Packet)
+	client.Send(pkt, kexResp)
+	if err := cr.ProcessKeyExResp(svrAddr, <-kexResp); err != nil {
+		return fmt.Errorf("handshake error: %s", err.Error())
+	}
+	return nil
+}
+
+// ClientKEx performs a key exchange between the client and the client at
+// clientAddr.
+func (cr *Crypto) ClientKEx(client client.Client, clientAddr string, pkt packet.Packet) error {
+	cr.ConfigureKeyExClientPkt(clientAddr, pkt.Writer())
+	respChan := make(chan packet.Packet)
+	client.Send(pkt, respChan)
+	if err := cr.ProcessKeyExResp(clientAddr, <-respChan); err != nil {
+		return fmt.Errorf("client-kex ferror: %s", err.Error())
+	}
+	return nil
+}
+
+// NewSecureUDPClient creates a UDPClient and installs the Crypto extension on
+// it (to which a pointer is returned). It then performs a key exchange with
+// svrAddr. If successful, the connection between the server and the returned
+// client will be secure i.e. packets sent between the server and the client
+// will be encrypted with AES, using a shared key generated using ECDH.
+func NewSecureUDPClient(client client.Client, svrAddr string, pkt packet.Packet) (*Crypto, error) {
+	// generate private key
+	privKey, err := ecdsa.GenerateKey(Curve, rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("public key gen fail: %s", err.Error())
+	}
+	// initialize Crypto extension
+	cr, err := NewCrypto(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("Crypto extension error: %s", err.Error())
+	}
+	// perform key-exchange with server
+	if err := cr.ServerKEx(client, svrAddr, pkt); err != nil {
+		return nil, fmt.Errorf("handshake error: %s", err.Error())
+	}
+	// install extension on client pipelines to provide transport encryption
+	if err = cr.Extend("client", client); err != nil {
+		return nil, fmt.Errorf("Crypto install err: %s", err.Error())
+	}
+	return cr, nil
 }
