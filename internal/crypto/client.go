@@ -15,9 +15,40 @@ func (cr *Crypto) installOnClient(p internal.Processor) error {
 	return nil
 }
 
+// IsKeyExchanged reports whether or not a successful handshake has been
+// performed with the given address.
 func (cr *Crypto) IsKeyExchanged(addr string) bool {
 	_, ok := cr.getKeyStore(addr)
 	return ok
+}
+
+// ConfigureClient secures the given client by installing the Crypto extension
+// on it (to which a pointer is returned). It then performs a key exchange with
+// svrAddr. If successful, the connection between the server and the returned
+// client will be secure i.e. packets sent between the server and the client
+// will be encrypted with AES, using a shared key generated using ECDH. The
+// `pkt` parameter will be used to compose the key exchange packet with the
+// server.
+func ConfigureClient(client client.Client, svrAddr string, pkt packet.Packet) (*Crypto, error) {
+	// generate private key
+	privKey, err := ecdsa.GenerateKey(Curve, rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("public key gen fail: %s", err.Error())
+	}
+	// initialize Crypto extension
+	cr, err := NewCrypto(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("Crypto extension error: %s", err.Error())
+	}
+	// perform key-exchange with server
+	if err := cr.ServerKEx(client, svrAddr, pkt); err != nil {
+		return nil, fmt.Errorf("handshake error: %s", err.Error())
+	}
+	// install extension on client pipelines to provide transport encryption
+	if err = cr.Extend("client", client); err != nil {
+		return nil, fmt.Errorf("Crypto install err: %s", err.Error())
+	}
+	return cr, nil
 }
 
 // ConfigureKeyExClientPkt writes the configuration (target, metadata, body,
@@ -150,31 +181,4 @@ func (cr *Crypto) ClientKEx(client client.Client, clientAddr string, pkt packet.
 		return fmt.Errorf("client-kex ferror: %s", err.Error())
 	}
 	return nil
-}
-
-// NewSecureUDPClient creates a UDPClient and installs the Crypto extension on
-// it (to which a pointer is returned). It then performs a key exchange with
-// svrAddr. If successful, the connection between the server and the returned
-// client will be secure i.e. packets sent between the server and the client
-// will be encrypted with AES, using a shared key generated using ECDH.
-func NewSecureUDPClient(client client.Client, svrAddr string, pkt packet.Packet) (*Crypto, error) {
-	// generate private key
-	privKey, err := ecdsa.GenerateKey(Curve, rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("public key gen fail: %s", err.Error())
-	}
-	// initialize Crypto extension
-	cr, err := NewCrypto(privKey)
-	if err != nil {
-		return nil, fmt.Errorf("Crypto extension error: %s", err.Error())
-	}
-	// perform key-exchange with server
-	if err := cr.ServerKEx(client, svrAddr, pkt); err != nil {
-		return nil, fmt.Errorf("handshake error: %s", err.Error())
-	}
-	// install extension on client pipelines to provide transport encryption
-	if err = cr.Extend("client", client); err != nil {
-		return nil, fmt.Errorf("Crypto install err: %s", err.Error())
-	}
-	return cr, nil
 }

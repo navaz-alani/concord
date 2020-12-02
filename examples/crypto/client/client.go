@@ -33,7 +33,7 @@ func createSecureClient(listenAddr *net.UDPAddr) (cl client.Client, cr *crypto.C
 	if cl, err = client.NewUDPClient(svrAddr, listenAddr, 4096, &pc, throttle.Rate10k); err != nil {
 		log.Fatalf("client init err: %s", err.Error())
 	}
-	if cr, err = crypto.NewSecureUDPClient(cl, svrAddr.String(), pc.NewPkt("", svrAddr.String())); err != nil {
+	if cr, err = crypto.ConfigureClient(cl, svrAddr.String(), pc.NewPkt("", svrAddr.String())); err != nil {
 		log.Fatalf("crypto err: %s", err.Error())
 	}
 	return cl, cr
