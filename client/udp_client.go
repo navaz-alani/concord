@@ -44,10 +44,10 @@ type UDPClient struct {
 	}
 	th             throttle.Throttle
 	activeRoutines int
-	writeStream        chan *writePacket
-	sendStream         chan packet.Packet
-	miscStream         chan packet.Packet
-	doneStream         chan bool
+	writeStream    chan *writePacket
+	sendStream     chan packet.Packet
+	miscStream     chan packet.Packet
+	doneStream     chan bool
 	requests       map[string]requestCtx
 }
 
@@ -73,12 +73,12 @@ func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize in
 			data:   core.NewDataPipeline(),
 			packet: core.NewPacketPipeline(),
 		},
-		th:       throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
-		writeStream:  make(chan *writePacket),
-		sendStream:   make(chan packet.Packet),
-		miscStream:   make(chan packet.Packet),
-		doneStream:   make(chan bool),
-		requests: make(map[string]requestCtx),
+		th:          throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
+		writeStream: make(chan *writePacket),
+		sendStream:  make(chan packet.Packet),
+		miscStream:  make(chan packet.Packet),
+		doneStream:  make(chan bool),
+		requests:    make(map[string]requestCtx),
 	}
 	// initialize client routines
 	go client.recv()
