@@ -1,4 +1,4 @@
-package internal
+package core
 
 import (
 	"crypto/ecdsa"
@@ -7,11 +7,11 @@ import (
 	"fmt"
 
 	"github.com/navaz-alani/concord/client"
-	"github.com/navaz-alani/concord/internal"
+	"github.com/navaz-alani/concord/core"
 	"github.com/navaz-alani/concord/packet"
 )
 
-func (cr *Crypto) installOnClient(p internal.Processor) error {
+func (cr *Crypto) installOnClient(p core.Processor) error {
 	return nil
 }
 

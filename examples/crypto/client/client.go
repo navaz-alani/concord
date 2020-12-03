@@ -5,8 +5,8 @@ import (
 	"net"
 
 	"github.com/navaz-alani/concord/client"
-	crypto "github.com/navaz-alani/concord/internal/crypto"
-	throttle "github.com/navaz-alani/concord/internal/throttle"
+	crypto "github.com/navaz-alani/concord/core/crypto"
+	throttle "github.com/navaz-alani/concord/core/throttle"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
 )

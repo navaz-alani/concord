@@ -1,4 +1,4 @@
-package internal
+package core
 
 import "github.com/navaz-alani/concord/packet"
 

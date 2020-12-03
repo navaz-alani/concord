@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/navaz-alani/concord/client"
-	throttle "github.com/navaz-alani/concord/internal/throttle"
+	throttle "github.com/navaz-alani/concord/core/throttle"
 	"github.com/navaz-alani/concord/packet"
 )
 

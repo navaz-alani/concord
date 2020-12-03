@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/navaz-alani/concord/internal"
-	throttle "github.com/navaz-alani/concord/internal/throttle"
+	"github.com/navaz-alani/concord/core"
+	throttle "github.com/navaz-alani/concord/core/throttle"
 	"github.com/navaz-alani/concord/packet"
 	"github.com/navaz-alani/concord/server"
 )
@@ -26,7 +26,7 @@ func main() {
 	var requestsServed int
 
 	// configure target on server
-	svr.PacketProcessor().AddCallback("app.echo", func(ctx *internal.TargetCtx, pw packet.Writer) {
+	svr.PacketProcessor().AddCallback("app.echo", func(ctx *core.TargetCtx, pw packet.Writer) {
 		log.Println("got packet")
 		// decode packet data, which in this case is JSON.
 		var pkt struct {

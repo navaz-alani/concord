@@ -6,8 +6,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/navaz-alani/concord/internal"
-	throttle "github.com/navaz-alani/concord/internal/throttle"
+	"github.com/navaz-alani/concord/core"
+	throttle "github.com/navaz-alani/concord/core/throttle"
 	"github.com/navaz-alani/concord/packet"
 )
 
@@ -39,15 +39,15 @@ type UDPClient struct {
 	addr         *net.UDPAddr
 	conn         *net.UDPConn
 	pipelines    struct {
-		data   *internal.DataPipeline
-		packet *internal.PacketPipeline
+		data   *core.DataPipeline
+		packet *core.PacketPipeline
 	}
 	th             throttle.Throttle
 	activeRoutines int
-	writeCh        chan *writePacket
-	sendCh         chan packet.Packet
-	miscCh         chan packet.Packet
-	doneCh         chan bool
+	writeStream        chan *writePacket
+	sendStream         chan packet.Packet
+	miscStream         chan packet.Packet
+	doneStream         chan bool
 	requests       map[string]requestCtx
 }
 
@@ -67,17 +67,17 @@ func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize in
 		addr:         svrAddr,
 		conn:         conn,
 		pipelines: struct {
-			data   *internal.DataPipeline
-			packet *internal.PacketPipeline
+			data   *core.DataPipeline
+			packet *core.PacketPipeline
 		}{
-			data:   internal.NewDataPipeline(),
-			packet: internal.NewPacketPipeline(),
+			data:   core.NewDataPipeline(),
+			packet: core.NewPacketPipeline(),
 		},
 		th:       throttle.NewUDPThrottle(throttleRate, conn, readBuffSize),
-		writeCh:  make(chan *writePacket),
-		sendCh:   make(chan packet.Packet),
-		miscCh:   make(chan packet.Packet),
-		doneCh:   make(chan bool),
+		writeStream:  make(chan *writePacket),
+		sendStream:   make(chan packet.Packet),
+		miscStream:   make(chan packet.Packet),
+		doneStream:   make(chan bool),
 		requests: make(map[string]requestCtx),
 	}
 	// initialize client routines
@@ -88,21 +88,21 @@ func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize in
 }
 
 func (c *UDPClient) Misc() <-chan packet.Packet {
-	return c.miscCh
+	return c.miscStream
 }
 
-func (c *UDPClient) PacketProcessor() internal.PacketProcessor {
+func (c *UDPClient) PacketProcessor() core.PacketProcessor {
 	return c.pipelines.packet
 }
 
-func (c *UDPClient) DataProcessor() internal.DataProcessor {
+func (c *UDPClient) DataProcessor() core.DataProcessor {
 	return c.pipelines.data
 }
 
 func (c *UDPClient) Cleanup() error {
 	// kill all active routines
 	for i := 0; i < c.activeRoutines; i++ {
-		c.doneCh <- true
+		c.doneStream <- true
 	}
 	c.th.Shutdown() // purge throttle resources
 	c.conn.Close()  // close underlying udp connection
@@ -138,8 +138,8 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 	if bin, err := pkt.Marshal(); err != nil {
 		return fmt.Errorf("packet encode failure")
 	} else {
-		transformCtx := &internal.TransformContext{
-			PipelineCtx: internal.PipelineCtx{
+		transformCtx := &core.TransformContext{
+			PipelineCtx: core.PipelineCtx{
 				Pkt: pkt,
 			},
 			PipelineName: "_out_",
@@ -147,10 +147,10 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 		var err error
 		if bin, err = c.pipelines.data.Process(transformCtx, bin); err != nil {
 			return fmt.Errorf("data pipeline error: " + err.Error())
-		} else if transformCtx.Stat == internal.CodeStopNoop {
+		} else if transformCtx.Stat == core.CodeStopNoop {
 			return fmt.Errorf("data pipeline enforced noop")
 		}
-		c.writeCh <- &writePacket{
+		c.writeStream <- &writePacket{
 			data:   bin,
 			respCh: respCh,
 		}
@@ -166,9 +166,9 @@ func (c *UDPClient) Send(pkt packet.Packet, respCh chan packet.Packet) error {
 func (c *UDPClient) write() {
 	for {
 		select {
-		case <-c.doneCh:
+		case <-c.doneStream:
 			return
-		case pkt := <-c.writeCh:
+		case pkt := <-c.writeStream:
 			if _, err := c.th.WriteTo(pkt.data, c.addr); err != nil {
 				pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
 			}
@@ -181,7 +181,7 @@ func (c *UDPClient) write() {
 func (c *UDPClient) recv() {
 	for {
 		select {
-		case <-c.doneCh:
+		case <-c.doneStream:
 			return
 		default:
 			if data, _, err := c.th.ReadFrom(); err == nil {
@@ -192,7 +192,7 @@ func (c *UDPClient) recv() {
 }
 
 func (c *UDPClient) processIncoming(data []byte) {
-	transformCtx := &internal.TransformContext{
+	transformCtx := &core.TransformContext{
 		PipelineName: "_in_",
 		From:         c.addr.String(),
 	}
@@ -216,7 +216,7 @@ func (c *UDPClient) processIncoming(data []byte) {
 		} else {
 			// miscellaneous packets are sent to the client's miscCh channel and can
 			// be handled by the client.
-			c.miscCh <- pkt
+			c.miscStream <- pkt
 		}
 	}
 }

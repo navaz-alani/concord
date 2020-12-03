@@ -1,4 +1,4 @@
-package internal
+package core
 
 import (
 	"crypto/ecdsa"
@@ -9,7 +9,7 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/navaz-alani/concord/internal"
+	"github.com/navaz-alani/concord/core"
 )
 
 // Target names the Crypto extension reserves.
@@ -104,7 +104,7 @@ func (cr *Crypto) computeSharedKey(pk *PublicKey) *big.Int {
 }
 
 // Extend installs Crypto onto the given Processor's pipeline.
-func (cr *Crypto) Extend(kind string, target internal.Processor) error {
+func (cr *Crypto) Extend(kind string, target core.Processor) error {
 	// install transport layer encryption & decryption buffer transforms
 	// for both server and client kinds
 	target.DataProcessor().AddTransform("_in_", cr.decryptTransport)
@@ -145,7 +145,7 @@ func (cr *Crypto) getKeyStore(addr string) (*keyStore, bool) {
 // data based on the destination of the packet. If a key exchange with the
 // destination has not been performed, then the transform will be the identity
 // transform (will do nothing to the contents of the buffer).
-func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) []byte {
+func (cr *Crypto) encryptTransport(ctx *core.TransformContext, buff []byte) []byte {
 	switch ctx.Pkt.Meta().Get(KeyNoCrypto) {
 	case "true", "t", "yes", "y", "1":
 		return buff
@@ -162,7 +162,7 @@ func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) 
 		k.setKeySent(true)
 		return buff
 	} else if ciphertext, err := encryptAES(k.shared.Bytes(), buff); err != nil {
-		ctx.Stat = internal.CodeStopError
+		ctx.Stat = core.CodeStopError
 		ctx.Msg = "encryption error: " + err.Error()
 		return buff
 	} else {
@@ -174,7 +174,7 @@ func (cr *Crypto) encryptTransport(ctx *internal.TransformContext, buff []byte) 
 // data based on the sender of the packet. If a key exchange with the
 // sender has not been performed, then the transform will be the identity
 // transform (will do nothing to the contents of the buffer).
-func (cr *Crypto) decryptTransport(ctx *internal.TransformContext, buff []byte) []byte {
+func (cr *Crypto) decryptTransport(ctx *core.TransformContext, buff []byte) []byte {
 	if k, ok := cr.getKeyStore(ctx.From); !ok {
 		return buff
 	} else if decrypted, err := decryptAES(k.shared.Bytes(), buff); err != nil {

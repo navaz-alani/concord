@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/navaz-alani/concord/internal"
-	throttle "github.com/navaz-alani/concord/internal/throttle"
+	"github.com/navaz-alani/concord/core"
+	throttle "github.com/navaz-alani/concord/core/throttle"
 	"github.com/navaz-alani/concord/packet"
 )
 
@@ -23,8 +23,8 @@ type UDPServer struct {
 	conn      *net.UDPConn
 	th        throttle.Throttle
 	pipelines struct {
-		data   *internal.DataPipeline
-		packet *internal.PacketPipeline
+		data   *core.DataPipeline
+		packet *core.PacketPipeline
 	}
 	pc         packet.PacketCreator
 	sendStream chan packet.Packet
@@ -45,11 +45,11 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 		conn: conn,
 		th:   throttle.NewUDPThrottle(throttleRate, conn, rBuffSize),
 		pipelines: struct {
-			data   *internal.DataPipeline
-			packet *internal.PacketPipeline
+			data   *core.DataPipeline
+			packet *core.PacketPipeline
 		}{
-			data:   internal.NewDataPipeline(),
-			packet: internal.NewPacketPipeline(),
+			data:   core.NewDataPipeline(),
+			packet: core.NewPacketPipeline(),
 		},
 		pc:         pc,
 		sendStream: make(chan packet.Packet),
@@ -61,11 +61,11 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 	return svr, nil
 }
 
-func (svr *UDPServer) DataProcessor() internal.DataProcessor {
+func (svr *UDPServer) DataProcessor() core.DataProcessor {
 	return svr.pipelines.data
 }
 
-func (svr *UDPServer) PacketProcessor() internal.PacketProcessor {
+func (svr *UDPServer) PacketProcessor() core.PacketProcessor {
 	return svr.pipelines.packet
 }
 
@@ -87,7 +87,7 @@ func (svr *UDPServer) Serve() error {
 }
 
 // relayCallback implements packet forwarding
-func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
+func (svr *UDPServer) relayCallback(ctx *core.TargetCtx, pw packet.Writer) {
 	sendStream := svr.send() // send-only access to svr.sendStream
 	ref := ctx.Pkt.Meta().Get(packet.KeyRef)
 	relayAddr := ctx.Pkt.Meta().Get(KeyRelayTo)
@@ -98,7 +98,7 @@ func (svr *UDPServer) relayCallback(ctx *internal.TargetCtx, pw packet.Writer) {
 	fwdPkt.Writer().Close()
 	sendStream <- fwdPkt
 	//can stop processing of packet here, no more actions needed
-	ctx.Stat = internal.CodeStopNoop
+	ctx.Stat = core.CodeStopNoop
 	ctx.Msg = "packet forwarded"
 }
 
@@ -114,14 +114,14 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 	sendStream := svr.send() // send-only access to svr.sendStream
 	// pre-processing data buffer
 	var err error
-	transformCtx := &internal.TransformContext{
+	transformCtx := &core.TransformContext{
 		PipelineName: "_in_",
 		From:         senderAddr.String(),
 	}
 	if data, err = svr.pipelines.data.Process(transformCtx, data); err != nil {
 		sendStream <- svr.pc.NewErrPkt("", senderAddr.String(), "data pipeline error: "+err.Error())
 		return
-	} else if transformCtx.Stat == internal.CodeStopNoop {
+	} else if transformCtx.Stat == core.CodeStopNoop {
 		return
 	}
 
@@ -133,8 +133,8 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 	// execute packet target callback queue
 	ref := pkt.Meta().Get(packet.KeyRef)
 	resp := svr.pc.NewPkt(ref, senderAddr.String())
-	ctx := &internal.TargetCtx{
-		PipelineCtx: internal.PipelineCtx{
+	ctx := &core.TargetCtx{
+		PipelineCtx: core.PipelineCtx{
 			Pkt: pkt,
 		},
 		TargetName: pkt.Meta().Get(packet.KeyTarget),
@@ -143,7 +143,7 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 	// execute callback queue
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
 		sendStream <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
-	} else if ctx.Stat != internal.CodeStopNoop {
+	} else if ctx.Stat != core.CodeStopNoop {
 		resp.Writer().Close()
 		sendStream <- resp
 	}
@@ -156,8 +156,8 @@ func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
 	if bin, err := pkt.Marshal(); err == nil {
 		if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 			// pre-processing data buffer
-			transformCtx := &internal.TransformContext{
-				PipelineCtx: internal.PipelineCtx{
+			transformCtx := &core.TransformContext{
+				PipelineCtx: core.PipelineCtx{
 					Pkt: pkt,
 				},
 				PipelineName: "_out_",
@@ -165,7 +165,7 @@ func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
 			if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
 				svr.send() <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),
 					pkt.Dest(), "pipeline error: "+err.Error())
-			} else if transformCtx.Stat == internal.CodeStopNoop {
+			} else if transformCtx.Stat == core.CodeStopNoop {
 			} else {
 				svr.dist() <- writePacket{
 					data: bin,

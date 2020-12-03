@@ -1,6 +1,6 @@
 package server
 
-import "github.com/navaz-alani/concord/internal"
+import "github.com/navaz-alani/concord/core"
 
 // Default server packet relay target name and metadata keys
 const (
@@ -54,7 +54,7 @@ type Server interface {
 	// Begin server RW loop
 	Serve() error
 	// Access the DataProcessor to perform extensions on the Server.
-	DataProcessor() internal.DataProcessor
+	DataProcessor() core.DataProcessor
 	// Access the PacketProcessor to configure targets and callback queues.
-	PacketProcessor() internal.PacketProcessor
+	PacketProcessor() core.PacketProcessor
 }

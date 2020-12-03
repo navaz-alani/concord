@@ -1,7 +1,7 @@
 package client
 
 import (
-	"github.com/navaz-alani/concord/internal"
+	"github.com/navaz-alani/concord/core"
 	"github.com/navaz-alani/concord/packet"
 )
 
@@ -33,7 +33,7 @@ type Client interface {
 	// client/server.
 
 	// Access the internal data processor
-	DataProcessor() internal.DataProcessor
+	DataProcessor() core.DataProcessor
 	// Access the internal packet processor
-	PacketProcessor() internal.PacketProcessor
+	PacketProcessor() core.PacketProcessor
 }
