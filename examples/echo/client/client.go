@@ -18,8 +18,9 @@ func main() {
 	// instatiate client which encodes/decodes JSONPkt packets with a 4096 byte
 	// read buffer and throttles packet reads/writes over the network at maximum
 	// of 10K packets per second.
-	pc := packet.JSONPktCreator{}
-	client, err := client.NewUDPClient(svrAddr, nil, 4096, &pc, throttle.Rate10k)
+	var rate throttle.Rate = throttle.Rate10k
+	pc := packet.NewJSONPktCreator(int(rate) / 2)
+	client, err := client.NewUDPClient(svrAddr, nil, 4096, pc, rate)
 	if err != nil {
 		log.Fatalln("Failed to instantiate client")
 	}

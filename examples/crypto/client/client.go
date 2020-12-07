@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	pc = packet.JSONPktCreator{}
+	rate throttle.Rate = throttle.Rate10k
+	pc                 = packet.NewJSONPktCreator(int(rate) / 2)
 
 	svrAddr = &net.UDPAddr{
 		IP:   []byte{127, 0, 0, 1},
@@ -30,7 +31,7 @@ var (
 
 func createSecureClient(listenAddr *net.UDPAddr) (cl client.Client, cr *crypto.Crypto) {
 	var err error
-	if cl, err = client.NewUDPClient(svrAddr, listenAddr, 4096, &pc, throttle.Rate10k); err != nil {
+	if cl, err = client.NewUDPClient(svrAddr, listenAddr, 4096, pc, rate); err != nil {
 		log.Fatalf("client init err: %s", err.Error())
 	}
 	if cr, err = crypto.ConfigureClient(cl, svrAddr.String(), pc.NewPkt("", svrAddr.String())); err != nil {

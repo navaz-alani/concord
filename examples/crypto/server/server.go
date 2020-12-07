@@ -21,7 +21,9 @@ func main() {
 		IP:   []byte{0, 0, 0, 0},
 		Port: 10000,
 	}
-	svr, err := server.NewUDPServer(addr, 4096, &packet.JSONPktCreator{}, throttle.Rate10k)
+	var rate throttle.Rate = throttle.Rate10k
+	pc := packet.NewJSONPktCreator(int(rate) / 2)
+	svr, err := server.NewUDPServer(addr, 4096, pc, rate)
 	if err != nil {
 		log.Fatalln("Failed to initialize server: ", err.Error())
 	}

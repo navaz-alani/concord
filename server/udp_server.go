@@ -121,7 +121,8 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 		return
 	}
 
-	pkt := svr.pc.NewPkt("", "")
+	pkt := svr.pc.NewPkt("", "")                // intermediate packet for decoding of recvd bin data
+	defer svr.pc.PutBack(pkt)                   // intermediate packet returned to pool
 	if err := pkt.Unmarshal(data); err != nil { // decode packet
 		sendStream <- svr.pc.NewErrPkt("", senderAddr.String(), "malformed packet")
 		return
@@ -138,8 +139,11 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 	}
 	// execute callback queue
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
+		svr.pc.PutBack(resp)
 		sendStream <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
-	} else if ctx.Stat != core.CodeStopNoop {
+	} else if ctx.Stat == core.CodeStopNoop {
+		svr.pc.PutBack(resp)
+	} else {
 		resp.Writer().Close()
 		sendStream <- resp
 	}
@@ -149,6 +153,7 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 // done, sends the final data to be written to the connection (through the
 // server `writeStream`).
 func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
+	defer svr.pc.PutBack(pkt)
 	if bin, err := pkt.Marshal(); err == nil {
 		if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
 			// pre-processing data buffer

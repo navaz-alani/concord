@@ -26,31 +26,6 @@ type JSONPkt struct {
 	dest string
 }
 
-// JSONPktCreator implements a PacketCreator for the JSONPkt type.
-type JSONPktCreator struct{}
-
-func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
-	pkt := &JSONPkt{
-		jsonPkt: &jsonPkt{
-			Meta: make(map[string]string),
-		},
-		mu:   sync.RWMutex{},
-		meta: NewKVMeta(),
-		dest: dest,
-	}
-	pkt.meta.setMeta(pkt.jsonPkt.Meta)
-	pkt.Meta().Add(KeyRef, ref)
-	return pkt
-}
-
-func (pc *JSONPktCreator) NewErrPkt(ref, dest, msg string) Packet {
-	pkt, _ := pc.NewPkt(ref, dest).(*JSONPkt)
-	// set reponse's error metadata
-	pkt.Meta().Add(KeySvrStatus, "-1")
-	pkt.Meta().Add(KeySvrMsg, msg)
-	return pkt
-}
-
 func (p *JSONPkt) Dest() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

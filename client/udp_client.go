@@ -101,9 +101,7 @@ func (c *UDPClient) DataProcessor() core.DataProcessor {
 
 func (c *UDPClient) Cleanup() error {
 	// kill all active routines
-	for i := 0; i < c.activeRoutines; i++ {
-		c.doneStream <- true
-	}
+	close(c.doneStream)
 	c.th.Shutdown() // purge throttle resources
 	c.conn.Close()  // close underlying udp connection
 	return nil
@@ -111,7 +109,7 @@ func (c *UDPClient) Cleanup() error {
 
 // Helper to generate a length-dependent ref for a packet.
 func genRef(n int) string {
-	var letters = []rune(`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+{}[];':",./<>?\|`)
+	var letters = []rune(`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`)
 	s := make([]rune, n)
 	for i := range s {
 		s[i] = letters[rand.Intn(len(letters))]

@@ -53,9 +53,20 @@ type Packet interface {
 // Packet.Meta().Add(packet.KeyRef, "<ref>") call, as with any other metadata).
 // The `ref` is important because it is the only piece of information unique to
 // a request sent by a particular address.
+//
+// The PacketCreator possesses an underlying pool of packets which could be
+// useful in high-throughput cases to avoid the overhead of packet allocations.
+// The Warmup method warms the pool up with a specific number of packets. The
+// New*Pkt methods return packets from the underlying pool and the PutBack
+// method returns packets to the pool.
 type PacketCreator interface {
+	// Warmup warms the underlying pool up with the given number of packets.
+	Warmup(numPackets int)
+	// PutBack returns the given packet to the PacketCreator pool.
+	PutBack(Packet)
+	// NewPkt returns a new packet with the given ref and dest.
 	NewPkt(ref, dest string) Packet
-	// NewErrPkt creates error packets for Server user.
+	// NewErrPkt creates error packets for Server/Client user.
 	NewErrPkt(ref, dest, msg string) Packet
 }
 

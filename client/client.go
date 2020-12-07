@@ -15,7 +15,11 @@ import (
 // an error.
 type Client interface {
 	// Send sends the given packet `pkt` through the underlying connection. The
-	// response from the server is sent on the `resp` channel.
+	// response from the server is sent on the `resp` channel. The Client's user
+	// should PutBack created packets into the underlying PacketCreator and also
+	// packets returned over the `respCh` passed to `Send`. Removing this
+	// responsibility of packet management to the user allows multiple packet
+	// types to be used.
 	Send(pkt packet.Packet, resp chan packet.Packet) error
 	// Cleanup purges the client's resources. The client should not be used after
 	// this method has been called.
