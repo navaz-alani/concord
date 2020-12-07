@@ -170,7 +170,9 @@ func (c *UDPClient) write() {
 			return
 		case pkt := <-c.writeStream:
 			if _, err := c.th.WriteTo(pkt.data, c.addr); err != nil {
-				pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
+				if pkt.respCh != nil {
+					pkt.respCh <- c.pc.NewErrPkt("", "", "packet write error: "+err.Error())
+				}
 			}
 		}
 	}
@@ -210,13 +212,13 @@ func (c *UDPClient) processIncoming(data []byte) {
 		c.mu.RUnlock()
 		if refValid && ctx.respCh != nil {
 			ctx.respCh <- pkt
-			c.mu.Lock()
-			delete(c.requests, ref)
-			c.mu.Unlock()
 		} else {
 			// miscellaneous packets are sent to the client's miscCh channel and can
 			// be handled by the client.
 			c.miscStream <- pkt
 		}
+		c.mu.Lock()
+		delete(c.requests, ref)
+		c.mu.Unlock()
 	}
 }

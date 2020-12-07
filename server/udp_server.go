@@ -14,23 +14,25 @@ type writePacket struct {
 	addr *net.UDPAddr
 }
 
+type pipelines struct {
+	data   *core.DataPipeline
+	packet *core.PacketPipeline
+}
+
 // UDPServer is an implementation of the Server type. As suggested by the name,
 // it uses UDP for underlying Packet transfer in the transport layer. It is also
 // concurrent, by default - each incoming packet is processed in its own
 // go-routine.
 type UDPServer struct {
-	addr      *net.UDPAddr
-	conn      *net.UDPConn
-	th        throttle.Throttle
-	pipelines struct {
-		data   *core.DataPipeline
-		packet *core.PacketPipeline
-	}
-	pc         packet.PacketCreator
-	sendStream chan packet.Packet
-	distStream chan writePacket
-	shutdown   chan string
-	rBuffSize  int
+	addr        *net.UDPAddr
+	conn        *net.UDPConn
+	th          throttle.Throttle
+	pipelines   *pipelines
+	pc          packet.PacketCreator
+	sendStream  chan packet.Packet
+	writeStream chan writePacket
+	shutdown    chan string
+	rBuffSize   int
 }
 
 func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
@@ -44,18 +46,15 @@ func NewUDPServer(addr *net.UDPAddr, rBuffSize int, pc packet.PacketCreator,
 		addr: addr,
 		conn: conn,
 		th:   throttle.NewUDPThrottle(throttleRate, conn, rBuffSize),
-		pipelines: struct {
-			data   *core.DataPipeline
-			packet *core.PacketPipeline
-		}{
+		pipelines: &pipelines{
 			data:   core.NewDataPipeline(),
 			packet: core.NewPacketPipeline(),
 		},
-		pc:         pc,
-		sendStream: make(chan packet.Packet),
-		distStream: make(chan writePacket),
-		shutdown:   make(chan string),
-		rBuffSize:  rBuffSize,
+		pc:          pc,
+		sendStream:  make(chan packet.Packet),
+		writeStream: make(chan writePacket),
+		shutdown:    make(chan string),
+		rBuffSize:   rBuffSize,
 	}
 	svr.pipelines.packet.AddCallback(TargetRelay, svr.relayCallback)
 	return svr, nil
@@ -74,8 +73,8 @@ func (svr *UDPServer) PacketProcessor() core.PacketProcessor {
 // connection, which is then returned.
 func (svr *UDPServer) Serve() error {
 	defer func() {
-		close(svr.distStream) // close writePkts routine
-		close(svr.sendStream) // close sendPkts routine
+		close(svr.writeStream) // close writePkts routine
+		close(svr.sendStream)  // close sendPkts routine
 	}()
 	svr.pipelines.data.Lock()
 	// fire off routines
@@ -91,6 +90,7 @@ func (svr *UDPServer) relayCallback(ctx *core.TargetCtx, pw packet.Writer) {
 	sendStream := svr.send() // send-only access to svr.sendStream
 	ref := ctx.Pkt.Meta().Get(packet.KeyRef)
 	relayAddr := ctx.Pkt.Meta().Get(KeyRelayTo)
+	fmt.Println("relaying from " + ctx.From + " to " + relayAddr)
 	// create a new packet to be forwarded and send it
 	fwdPkt := svr.pc.NewPkt(ref, relayAddr)
 	fwdPkt.Meta().Add(KeyRelayFrom, ctx.From)
@@ -102,12 +102,8 @@ func (svr *UDPServer) relayCallback(ctx *core.TargetCtx, pw packet.Writer) {
 	ctx.Msg = "packet forwarded"
 }
 
-func (svr *UDPServer) dist() chan<- writePacket   { return svr.distStream }
+func (svr *UDPServer) dist() chan<- writePacket   { return svr.writeStream }
 func (svr *UDPServer) send() chan<- packet.Packet { return svr.sendStream }
-
-func (svr *UDPServer) fmtMsg(msg string) string {
-	return fmt.Sprintf("[UDPServer@%s] %s", svr.addr.String(), msg)
-}
 
 // processIncoming runs the given data through the server's data pipelines.
 func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
@@ -151,7 +147,7 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 
 // processOutgoing runs the given `pkt` through the client pipelines and when
 // done, sends the final data to be written to the connection (through the
-// server `distStream`).
+// server `writeStream`).
 func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
 	if bin, err := pkt.Marshal(); err == nil {
 		if addr, err := net.ResolveUDPAddr("udp", pkt.Dest()); err == nil {
@@ -165,8 +161,7 @@ func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
 			if bin, err := svr.pipelines.data.Process(transformCtx, bin); err != nil {
 				svr.send() <- svr.pc.NewErrPkt(pkt.Meta().Get(packet.KeyRef),
 					pkt.Dest(), "pipeline error: "+err.Error())
-			} else if transformCtx.Stat == core.CodeStopNoop {
-			} else {
+			} else if transformCtx.Stat != core.CodeStopNoop {
 				svr.dist() <- writePacket{
 					data: bin,
 					addr: addr,
@@ -183,7 +178,8 @@ func (svr *UDPServer) readPkts() {
 	for {
 		if data, senderAddr, err := svr.th.ReadFrom(); err != nil {
 			// send shutdown signal to end write routine
-			svr.shutdown <- svr.fmtMsg("read fail - connection error")
+			msg := fmt.Sprintf("[UDPServer@%s] read fail - connection error", svr.addr.String())
+			svr.shutdown <- msg
 			break
 		} else {
 			go svr.processIncoming(data, senderAddr)
@@ -193,12 +189,12 @@ func (svr *UDPServer) readPkts() {
 
 // write is a routine which distributes packets by writing them over the
 // underlying UDP connection. Any encoding/write errors are ignored. It is the
-// only consumer of distStream. It also serves the purpose of throttling the
+// only consumer of writeStream. It also serves the purpose of throttling the
 // packet-write-rate of the server.
 func (svr *UDPServer) writePkts() {
 	var pkt writePacket
-	for pkt = range svr.distStream {
-		svr.th.WriteTo(pkt.data, pkt.addr) // throttled write operation
+	for pkt = range svr.writeStream { // throttled write operation
+		svr.th.WriteTo(pkt.data, pkt.addr)
 	}
 }
 
