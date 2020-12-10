@@ -42,13 +42,12 @@ type UDPClient struct {
 		data   *core.DataPipeline
 		packet *core.PacketPipeline
 	}
-	th             throttle.Throttle
-	activeRoutines int
-	writeStream    chan *writePacket
-	sendStream     chan packet.Packet
-	miscStream     chan packet.Packet
-	doneStream     chan bool
-	requests       map[string]requestCtx
+	th          throttle.Throttle
+	writeStream chan *writePacket
+	sendStream  chan packet.Packet
+	miscStream  chan packet.Packet
+	doneStream  chan bool
+	requests    map[string]requestCtx
 }
 
 func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize int,
@@ -83,7 +82,6 @@ func NewUDPClient(svrAddr *net.UDPAddr, listenAddr *net.UDPAddr, readBuffSize in
 	// initialize client routines
 	go client.recv()
 	go client.write()
-	client.activeRoutines += 2
 	return client, nil
 }
 
@@ -100,7 +98,6 @@ func (c *UDPClient) DataProcessor() core.DataProcessor {
 }
 
 func (c *UDPClient) Cleanup() error {
-	// kill all active routines
 	close(c.doneStream)
 	c.th.Shutdown() // purge throttle resources
 	c.conn.Close()  // close underlying udp connection

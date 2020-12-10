@@ -46,7 +46,7 @@ func main() {
 	// of 10K packets per second.
 	var rate throttle.Rate = throttle.Rate10k
 	pc := packet.NewJSONPktCreator(int(rate) / 2)
-	client, err := client.NewUDPClient(svrAddr, nil, 4096, pc, throttle.Rate1h)
+	client, err := client.NewUDPClient(svrAddr, nil, 4096, pc, rate)
 	if err != nil {
 		log.Fatalln("Failed to instantiate client")
 	}

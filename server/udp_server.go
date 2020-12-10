@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/navaz-alani/concord/core"
 	throttle "github.com/navaz-alani/concord/core/throttle"
@@ -80,9 +81,17 @@ func (svr *UDPServer) Serve() error {
 	// fire off routines
 	go svr.sendPkts()  // pre-process packets before writing
 	go svr.writePkts() // write packets to connection
-	go svr.readPkts()  // read packets from connection
-	// return shutdown message when read fails (readPkts routine will exit)
-	return fmt.Errorf(<-svr.shutdown)
+
+	// setup readers & writers for packets from connection
+	numReaders := 5
+	wg := &sync.WaitGroup{}
+	wg.Add(numReaders)
+	for i := 0; i < numReaders; i++ {
+		go svr.readPkts(wg)
+	}
+	wg.Wait()
+
+	return fmt.Errorf("server error - read fail")
 }
 
 // relayCallback implements packet forwarding
@@ -179,13 +188,11 @@ func (svr *UDPServer) processOutgoing(pkt packet.Packet) {
 // read is a routune which reads and decodes packets from the underlying
 // connection and spawns a routine to process each packet read. It is the only
 // writer to the server's `shutdown` channel.
-func (svr *UDPServer) readPkts() {
+func (svr *UDPServer) readPkts(wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
 		if data, senderAddr, err := svr.th.ReadFrom(); err != nil {
-			// send shutdown signal to end write routine
-			msg := fmt.Sprintf("[UDPServer@%s] read fail - connection error", svr.addr.String())
-			svr.shutdown <- msg
-			break
+			return
 		} else {
 			go svr.processIncoming(data, senderAddr)
 		}
