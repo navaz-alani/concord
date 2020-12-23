@@ -163,6 +163,7 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 			if relayAddr := resp.Meta().Get(KeyRelayTo); relayAddr != "" {
 				// change destination of `resp` and send it
 				resp.SetDest(relayAddr)
+				resp.Meta().Add(KeyRelayFrom, ctx.From)
 				resp.Writer().Close()
 				sendStream <- resp
 			} else {
