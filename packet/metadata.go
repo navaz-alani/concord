@@ -33,7 +33,7 @@ func (m *KVMeta) setMeta(meta map[string]string) {
 	m.meta = meta
 }
 
-func (m *KVMeta) clear() {
+func (m *KVMeta) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for k := range m.meta {

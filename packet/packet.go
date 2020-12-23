@@ -14,6 +14,7 @@ const (
 type Metadata interface {
 	Add(key, val string)
 	Get(key string) (val string)
+	Clear()
 }
 
 // Packet defines the required behaviour of a type to be serialized/deserialized
@@ -33,6 +34,8 @@ type Metadata interface {
 type Packet interface {
 	// Dest returns the address to which this packet is destined.
 	Dest() string
+	// SetDest sets the destination of the packet.
+	SetDest(dest string)
 	// Meta is the metadata accessor.
 	Meta() Metadata
 	// Data is the packet data accessor.

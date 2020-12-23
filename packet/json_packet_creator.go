@@ -41,7 +41,7 @@ func (pc *JSONPktCreator) PutBack(pkt Packet) {
 
 func (pc *JSONPktCreator) NewPkt(ref, dest string) Packet {
 	pkt := pc.pool.Get().(*JSONPkt)
-	pkt.meta.clear()
+	pkt.meta.Clear()
 	pkt.buff.Reset()
 	pkt.dest = dest
 	pkt.Meta().Add(KeyRef, ref)

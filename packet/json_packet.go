@@ -26,6 +26,12 @@ type JSONPkt struct {
 	dest string
 }
 
+func (p *JSONPkt) SetDest(dest string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.dest = dest
+}
+
 func (p *JSONPkt) Dest() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
