@@ -99,7 +99,8 @@ func (svr *UDPServer) relayCallback(ctx *core.TargetCtx, pw packet.Writer) {
 	sendStream := svr.send() // send-only access to svr.sendStream
 	ref := ctx.Pkt.Meta().Get(packet.KeyRef)
 	relayAddr := ctx.Pkt.Meta().Get(KeyRelayTo)
-	fmt.Println("relaying from " + ctx.From + " to " + relayAddr)
+	// fmt.Println("relaying from " + ctx.From + " to " + relayAddr)
+
 	// create a new packet to be forwarded and send it
 	fwdPkt := svr.pc.NewPkt(ref, relayAddr)
 	fwdPkt.Meta().Add(KeyRelayFrom, ctx.From)
@@ -150,11 +151,30 @@ func (svr *UDPServer) processIncoming(data []byte, senderAddr net.Addr) {
 	if err := svr.pipelines.packet.Process(ctx, resp.Writer()); err != nil {
 		svr.pc.PutBack(resp)
 		sendStream <- svr.pc.NewErrPkt(ref, senderAddr.String(), "packet pipeline error: "+err.Error())
-	} else if ctx.Stat == core.CodeStopNoop {
-		svr.pc.PutBack(resp)
-	} else {
-		resp.Writer().Close()
-		sendStream <- resp
+		return
+	}
+	switch ctx.Stat {
+	case core.CodeStopNoop:
+		{
+			svr.pc.PutBack(resp)
+		}
+	case core.CodeRelay:
+		{
+			if relayAddr := resp.Meta().Get(KeyRelayTo); relayAddr != "" {
+				// change destination of `resp` and send it
+				resp.SetDest(relayAddr)
+				resp.Writer().Close()
+				sendStream <- resp
+			} else {
+				// ignore malformed relay request by application
+				svr.pc.PutBack(resp)
+			}
+		}
+	default:
+		{
+			resp.Writer().Close()
+			sendStream <- resp
+		}
 	}
 }
 

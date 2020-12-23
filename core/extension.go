@@ -12,6 +12,9 @@ const (
 	CodeStopCloseSend = 1
 	// CodeStopNoop means "stop callback queue execution, and do nothing".
 	CodeStopNoop = 2
+	// CodeRelay means "processing complete, relay the packet to another address,
+	// as specified in the packet metadata"
+	CodeRelay = 3
 )
 
 type PipelineCtx struct {
